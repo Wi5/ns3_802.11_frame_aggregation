@@ -206,6 +206,7 @@ Two possibilities:
 #include "ns3/flow-monitor-module.h"
 #include "ns3/nstime.h"
 #include "ns3/spectrum-module.h"    // For the spectrum channel
+#include <ns3/friis-spectrum-propagation-loss.h>
 #include "ns3/ipv4-static-routing-helper.h"
 #include <sstream>
 
@@ -2429,7 +2430,7 @@ int main (int argc, char *argv[]) {
     } else if (propagationLossModel == 2) {
       //spectrumChannel.AddPropagationLoss ("ns3::FriisSpectrumPropagationLossModel");
       Ptr<FriisSpectrumPropagationLossModel> lossModel = CreateObject<FriisSpectrumPropagationLossModel> ();
-//      spectrumChannel->AddPropagationLossModel (lossModel);
+      spectrumChannel->AddSpectrumPropagationLossModel(lossModel);
     }
 
     // delay model
