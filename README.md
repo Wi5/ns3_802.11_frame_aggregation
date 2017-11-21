@@ -14,15 +14,17 @@ http://ieeexplore.ieee.org/document/8013762/
 
 Author's self-archive version: http://diec.unizar.es/~jsaldana/personal/amsterdam_2017_in_proc.pdf
 
-`wifi-central-controlled-aggregation_v140.cc` is the ns3 file used for the paper.
-
 
 ## Content of the repository
 
-The `.cc` file contains the ns3 script. It has been run with ns3-26 (https://www.nsnam.org/ns-3-26/).
+The `wifi-central-controlled-aggregation.cc` has more improvements. It contains the ns3 script. It can be run with ns3-27.
+
+The file `wifi-central-controlled-aggregation_v140.cc` is the ns3 file used for the paper. It has been run with ns3-26 (https://www.nsnam.org/ns-3-26/).
+
+The folder `traces` contains the traces used for the video download applications (http://www2.tkn.tu-berlin.de/research/trace/ltvt.html).
 
 The folder `shell_scripts_used_in_the_paper` contains the files used for obtaining each of
-the figures presented in the paper.
+the figures presented in the IEEE Communications Letters paper:
 
 - Figure 1
 ```
