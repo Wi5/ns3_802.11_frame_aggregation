@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v148
+ * v150
  * Developed and tested for ns-3.26, although the simulation crashes in some cases. One example:
  *    - more than one AP
  *    - set the RtsCtsThreshold below 48000
@@ -1714,6 +1714,8 @@ int main (int argc, char *argv[]) {
                             // 2: each server application is in a node behind the router, connected to it with a P2P connection
 
   uint32_t TcpPayloadSize = 1448; //bytes. Prevent fragmentation. Taken from https://www.nsnam.org/doxygen/codel-vs-pfifo-asymmetric_8cc_source.html
+  uint32_t VideoMaxPacketSize = 1472;  // Remove 20 (IP) + 8 (UDP) bytes from MTU (1500)
+
   std::string TcpVariant = "TcpNewReno"; // other options "TcpHighSpeed", "TcpWestwoodPlus"
 
   double simulationTime = 10.0; //seconds
@@ -1722,6 +1724,7 @@ int main (int argc, char *argv[]) {
   uint32_t numberVoIPdownload = 0;
   uint32_t numberTCPupload = 0;
   uint32_t numberTCPdownload = 0;
+  uint32_t numberVideoDownload = 0;
 
   //Using different priorities for VoIP and TCP
   //https://groups.google.com/forum/#!topic/ns-3-users/J3BvzGVJhXM
@@ -1735,6 +1738,7 @@ int main (int argc, char *argv[]) {
   uint32_t prioritiesEnabled = 0;
   uint8_t VoIpPriorityLevel = 0xc0;
   uint8_t TcpPriorityLevel = 0x00;
+  uint8_t VideoPriorityLevel = 0x00;  // FIXME check if this is what we want
 
   uint32_t RtsCtsThreshold = 999999;  // RTS/CTS is disabled by defalult
 
@@ -1783,6 +1787,7 @@ int main (int argc, char *argv[]) {
   cmd.AddValue ("numberVoIPdownload", "Number of nodes running VoIP down", numberVoIPdownload);
   cmd.AddValue ("numberTCPupload", "Number of nodes running TCP up", numberTCPupload);
   cmd.AddValue ("numberTCPdownload", "Number of nodes running TCP down", numberTCPdownload);
+  cmd.AddValue ("numberVideoDownload", "Number of nodes running video down", numberVideoDownload);
 
   cmd.AddValue ("number_of_APs", "Number of wifi APs", number_of_APs);
   cmd.AddValue ("number_of_APs_per_row", "Number of wifi APs per row", number_of_APs_per_row);
@@ -1836,7 +1841,7 @@ int main (int argc, char *argv[]) {
 
 
   // Other variables
-  uint32_t number_of_STAs = numberVoIPupload + numberVoIPdownload + numberTCPupload + numberTCPdownload;   // One STA runs each application
+  uint32_t number_of_STAs = numberVoIPupload + numberVoIPdownload + numberTCPupload + numberTCPdownload + numberVideoDownload;   // One STA runs each application
   double x_position_first_STA = x_position_first_AP + x_distance_STA_to_AP;
   double y_position_first_STA = y_position_first_AP + y_distance_STA_to_AP; // by default, the first STA is located some meters above the first AP
   uint32_t number_of_Servers = number_of_STAs;  // the number of servers is the same as the number of STAs. Each server attends a STA
@@ -1962,6 +1967,7 @@ int main (int argc, char *argv[]) {
     std::cout << "Number of nodes running VoIP down: " << numberVoIPdownload << '\n';
     std::cout << "Number of nodes running TCP up: " << numberTCPupload << '\n';
     std::cout << "Number of nodes running TCP down: " << numberTCPdownload << '\n';
+    std::cout << "Number of nodes running video down: " << numberVideoDownload << '\n';
     std::cout << "Number of APs: " << number_of_APs << '\n';    
     std::cout << "Number of APs per row: " << number_of_APs_per_row << '\n'; 
     std::cout << "Distance between APs: " << distance_between_APs << " meters" << '\n';
@@ -3135,9 +3141,14 @@ int main (int argc, char *argv[]) {
     } else if (l < numberVoIPupload + numberVoIPdownload + numberTCPupload) {
       m_STArecord->Settypeofapplication (3);               // TCP upload
       m_STArecord->SetMaxSizeAmpdu (maxAmpduSize);         // aggregation enabled
-    } else {
+    } else if (l < numberVoIPupload + numberVoIPdownload + numberTCPupload + numberTCPdownload) {
       m_STArecord->Settypeofapplication (4);                // TCP download
       m_STArecord->SetMaxSizeAmpdu (maxAmpduSize);         // aggregation enabled
+    } else if (l < numberVoIPupload + numberVoIPdownload + numberTCPupload + numberTCPdownload + numberVideoDownload) {
+      m_STArecord->Settypeofapplication (5);                // Video download
+      m_STArecord->SetMaxSizeAmpdu (maxAmpduSize);         // aggregation enabled      
+    } else {
+
     }
 
     // Establish the verbose level in the STA record
@@ -3256,9 +3267,10 @@ int main (int argc, char *argv[]) {
   }
 
 
+
   // VoIP download
   // UDPClient in the AP and UDPServer in the STA
-  // traffic goes AP -> STA
+  // traffic goes Server -> STA
   // I have taken this as an example: https://groups.google.com/forum/#!topic/ns-3-users/ej8LaxQO1Gc
   // UdpServer runs in each STA. It waits for input UDP packets and uses the
   // information carried into their payload to compute delay and to determine
@@ -3274,7 +3286,7 @@ int main (int argc, char *argv[]) {
     VoipDownServer.Start (Seconds (0.0));
     VoipDownServer.Stop (Seconds (simulationTime + initial_time_interval));
 
-    // UdpClient runs in the AP, so I must create a UdpClient per STA
+    // I must create a UdpClient per STA
     UdpClientHelper myVoipDownClient;
     ApplicationContainer VoipDownClient;
     // I associate all the servers (all running in the Stas) to each server application
@@ -3507,9 +3519,74 @@ int main (int argc, char *argv[]) {
   BulkSendTcpDown.Start (Seconds (initial_time_interval));
   BulkSendTcpDown.Stop (Seconds (simulationTime + initial_time_interval));
 
+
+
+  // Video download Application
+  // Using UdpTraceClient, see https://www.nsnam.org/doxygen/udp-trace-client_8cc_source.html
+  // VideoDownServer in the STA (receives the video)
+  // Client in the corresponding server
+  UdpServerHelper myVideoDownServer;
+  ApplicationContainer VideoDownServer;
+
+  for (uint32_t i = numberVoIPupload + numberVoIPdownload + numberTCPupload + numberTCPdownload; 
+                i < numberVoIPupload + numberVoIPdownload + numberTCPupload + numberTCPdownload + numberVideoDownload; 
+                i++) {
+
+    myVideoDownServer = UdpServerHelper(port);
+    VideoDownServer = myVideoDownServer.Install (staNodes.Get (i));
+    VideoDownServer.Start (Seconds (0.0));
+    VideoDownServer.Stop (Seconds (simulationTime + initial_time_interval));
+
+    UdpTraceClientHelper myVideoDownClient;
+    ApplicationContainer VideoDownClient;
+
+    InetSocketAddress destAddress (InetSocketAddress (staInterfaces[i].GetAddress(0), port));
+
+    if (prioritiesEnabled == 0) {
+      destAddress.SetTos (VideoPriorityLevel);
+    } else {
+      destAddress.SetTos (VideoPriorityLevel);
+    }
+
+    myVideoDownClient = UdpTraceClientHelper(destAddress, port,"");
+    myVideoDownClient.SetAttribute ("MaxPacketSize", UintegerValue (VideoMaxPacketSize));
+    myVideoDownClient.SetAttribute ("TraceLoop", BooleanValue (1));
+    myVideoDownClient.SetAttribute ("TraceFilename", StringValue ("Verbose_Jurassic.dat")); // The file has to be in the /ns-3-allinone/ns-3-dev folder
+
+    //VoipDownClient = myVoipDownClient.Install (wifiApNodesA.Get(0));
+    if (topology == 0) {
+      VideoDownClient = myVideoDownClient.Install (singleServerNode.Get(0));
+    } else {
+      VideoDownClient = myVideoDownClient.Install (serverNodes.Get (i));
+    }
+
+    VideoDownClient.Start (Seconds (initial_time_interval));
+    VideoDownClient.Stop (Seconds (simulationTime + initial_time_interval));
+
+    if (verboseLevel > 0) {
+      if (topology == 0) {
+        std::cout << "Application Video download from the server"
+                  << "\t with IP address " << singleServerInterfaces.GetAddress (0) 
+                  << "\t-> to STA    #" << staNodes.Get(i)->GetId() 
+                  << "\t\t with IP address " << staInterfaces[i].GetAddress(0) 
+                  << "\t and port " << port
+                  << '\n';          
+      } else {
+        std::cout << "Application Video download from server #" << serverNodes.Get(i)->GetId()
+                  << "\t with IP address " << serverInterfaces.GetAddress (i) 
+                  << "\t-> to STA    #" << staNodes.Get(i)->GetId()
+                  << "\t\t with IP address " << staInterfaces[i].GetAddress(0)  
+                  << "\t and port " << port
+                  << '\n';     
+      }     
+    }
+    port ++;
+  }
+
   // print a blank line after printing the info about the applications
   if (verboseLevel > 0)
     std::cout << "\n";
+
 
 
   // Enable the creation of pcap files
@@ -3770,19 +3847,22 @@ if(false) {
   uint32_t number_of_UDP_download_flows = 0;
   uint32_t number_of_TCP_upload_flows = 0;      // this index is used for the cumulative calculation of the average
   uint32_t number_of_TCP_download_flows = 0;
-  
-  uint32_t total_UDP_upload_tx_packets = 0;
-  uint32_t total_UDP_upload_rx_packets = 0;
-  double total_UDP_upload_latency = 0.0;
-  double total_UDP_upload_jitter = 0.0;
+  uint32_t number_of_video_download_flows = 0;
 
-  uint32_t total_UDP_download_tx_packets = 0;
-  uint32_t total_UDP_download_rx_packets = 0;
-  double total_UDP_download_latency = 0.0;
-  double total_UDP_download_jitter = 0.0;
+  uint32_t total_VoIP_upload_tx_packets = 0;
+  uint32_t total_VoIP_upload_rx_packets = 0;
+  double total_VoIP_upload_latency = 0.0;
+  double total_VoIP_upload_jitter = 0.0;
+
+  uint32_t total_VoIP_download_tx_packets = 0;
+  uint32_t total_VoIP_download_rx_packets = 0;
+  double total_VoIP_download_latency = 0.0;
+  double total_VoIP_download_jitter = 0.0;
 
   double total_TCP_upload_throughput = 0.0;
   double total_TCP_download_throughput = 0.0; // average throughput of all the download TCP flows
+
+  double total_video_download_throughput = 0.0; // average throughput of all the download video flows
 
   // for each flow
   std::map< FlowId, FlowMonitor::FlowStats > stats = monitor->GetFlowStats(); 
@@ -3815,7 +3895,29 @@ if(false) {
             << t.sourceAddress << "\t"
             << t.sourcePort << "\t" 
             << t.destinationAddress << "\t"
-            << t.destinationPort; 
+            << t.destinationPort;
+    // UDP upload flows
+    if (  (t.destinationPort >= initial_port ) && 
+          (t.destinationPort <  initial_port + numberVoIPupload )) {
+      flowID << "\t VoIP upload";
+    // UDP download flows
+    } else if ( (t.destinationPort >= initial_port + numberVoIPupload ) && 
+                (t.destinationPort <  initial_port + numberVoIPupload + numberVoIPdownload )) { 
+      flowID << "\t VoIP download";
+    // TCP upload flows
+    } else if ( (t.destinationPort >= initial_port + numberVoIPupload + numberVoIPdownload ) && 
+                (t.destinationPort <  initial_port + numberVoIPupload + numberVoIPdownload + numberTCPupload )) { 
+      flowID << "\t TCP upload";
+    // TCP download flows
+    } else if ( (t.destinationPort >= initial_port + numberVoIPupload + numberVoIPdownload + numberTCPupload ) && 
+                (t.destinationPort <  initial_port + numberVoIPupload + numberVoIPdownload + numberTCPupload + numberTCPdownload )) { 
+      flowID << "\t TCP download";
+    } else if ( (t.destinationPort >= initial_port + numberVoIPupload + numberVoIPdownload + numberTCPupload + numberTCPdownload ) && 
+                (t.destinationPort <  initial_port + numberVoIPupload + numberVoIPdownload + numberTCPupload + numberTCPdownload + numberVideoDownload)) { 
+      flowID << "\t Video download";
+    } 
+
+    // FIXME: Add to flowID a new string "VoIP", "TCP", "Video"
 
     // create a string with the name of the output file
     std::ostringstream nameFlowFile, surnameFlowFile;
@@ -3842,20 +3944,20 @@ if(false) {
     if (  (t.destinationPort >= initial_port ) && 
           (t.destinationPort <  initial_port + numberVoIPupload )) {
 
-        total_UDP_upload_tx_packets = total_UDP_upload_tx_packets + flow->second.txPackets;
-        total_UDP_upload_rx_packets = total_UDP_upload_rx_packets + flow->second.rxPackets;
-        total_UDP_upload_latency = total_UDP_upload_latency + flow->second.delaySum.GetSeconds();
-        total_UDP_upload_jitter = total_UDP_upload_jitter + flow->second.jitterSum.GetSeconds();
+        total_VoIP_upload_tx_packets = total_VoIP_upload_tx_packets + flow->second.txPackets;
+        total_VoIP_upload_rx_packets = total_VoIP_upload_rx_packets + flow->second.rxPackets;
+        total_VoIP_upload_latency = total_VoIP_upload_latency + flow->second.delaySum.GetSeconds();
+        total_VoIP_upload_jitter = total_VoIP_upload_jitter + flow->second.jitterSum.GetSeconds();
         number_of_UDP_upload_flows ++;
 
     // UDP download flows
     } else if ( (t.destinationPort >= initial_port + numberVoIPupload ) && 
                 (t.destinationPort <  initial_port + numberVoIPupload + numberVoIPdownload )) { 
 
-        total_UDP_download_tx_packets = total_UDP_download_tx_packets + flow->second.txPackets;
-        total_UDP_download_rx_packets = total_UDP_download_rx_packets + flow->second.rxPackets;
-        total_UDP_download_latency = total_UDP_download_latency + flow->second.delaySum.GetSeconds();
-        total_UDP_download_jitter = total_UDP_download_jitter + flow->second.jitterSum.GetSeconds();
+        total_VoIP_download_tx_packets = total_VoIP_download_tx_packets + flow->second.txPackets;
+        total_VoIP_download_rx_packets = total_VoIP_download_rx_packets + flow->second.rxPackets;
+        total_VoIP_download_latency = total_VoIP_download_latency + flow->second.delaySum.GetSeconds();
+        total_VoIP_download_jitter = total_VoIP_download_jitter + flow->second.jitterSum.GetSeconds();
         number_of_UDP_download_flows ++;
 
     // TCP upload flows
@@ -3871,6 +3973,13 @@ if(false) {
 
         total_TCP_download_throughput = total_TCP_download_throughput + ( flow->second.rxBytes * 8.0 / simulationTime );                                          
         number_of_TCP_download_flows ++;
+
+    // video download flows
+    } else if ( (t.destinationPort >= initial_port + numberVoIPupload + numberVoIPdownload + numberTCPupload + numberTCPdownload ) && 
+                (t.destinationPort <  initial_port + numberVoIPupload + numberVoIPdownload + numberTCPupload + numberTCPdownload + numberVideoDownload)) { 
+      
+        total_video_download_throughput = total_video_download_throughput + ( flow->second.rxBytes * 8.0 / simulationTime );                                          
+        number_of_video_download_flows ++;
     } 
   }
 
@@ -3878,37 +3987,37 @@ if(false) {
     std::cout << "\n" 
       << "The next figures are averaged per packet, not per flow:" << std::endl;
 
-    if ( total_UDP_upload_rx_packets > 0 ) {
-      std::cout << " Average UDP upload latency [s]:\t" << total_UDP_upload_latency / total_UDP_upload_rx_packets << std::endl;
-      std::cout << " Average UDP upload jitter [s]:\t\t" << total_UDP_upload_jitter / total_UDP_upload_rx_packets << std::endl;
+    if ( total_VoIP_upload_rx_packets > 0 ) {
+      std::cout << " Average VoIP upload latency [s]:\t" << total_VoIP_upload_latency / total_VoIP_upload_rx_packets << std::endl;
+      std::cout << " Average VoIP upload jitter [s]:\t\t" << total_VoIP_upload_jitter / total_VoIP_upload_rx_packets << std::endl;
     } else {
-      std::cout << " Average UDP upload latency [s]:\tno packets received" << std::endl;
-      std::cout << " Average UDP upload jitter [s]:\tno packets received" << std::endl;      
+      std::cout << " Average VoIP upload latency [s]:\tno packets received" << std::endl;
+      std::cout << " Average VoIP upload jitter [s]:\tno packets received" << std::endl;      
     }
-    if ( total_UDP_upload_tx_packets > 0 ) {
-      std::cout << " Average UDP upload loss rate:\t\t" 
-                <<  1.0 - ( double(total_UDP_upload_rx_packets) / double(total_UDP_upload_tx_packets) )
+    if ( total_VoIP_upload_tx_packets > 0 ) {
+      std::cout << " Average VoIP upload loss rate:\t\t" 
+                <<  1.0 - ( double(total_VoIP_upload_rx_packets) / double(total_VoIP_upload_tx_packets) )
                 << std::endl;
     } else {
-      std::cout << " Average UDP upload loss rate:\t\tno packets sent" << std::endl;     
+      std::cout << " Average VoIP upload loss rate:\t\tno packets sent" << std::endl;     
     }
 
 
-    if ( total_UDP_download_rx_packets > 0 ) {
-      std::cout << " Average UDP download latency [s]:\t" << total_UDP_download_latency / total_UDP_download_rx_packets 
+    if ( total_VoIP_download_rx_packets > 0 ) {
+      std::cout << " Average VoIP download latency [s]:\t" << total_VoIP_download_latency / total_VoIP_download_rx_packets 
                 << std::endl;
-      std::cout << " Average UDP download jitter [s]:\t" << total_UDP_download_jitter / total_UDP_download_rx_packets 
+      std::cout << " Average VoIP download jitter [s]:\t" << total_VoIP_download_jitter / total_VoIP_download_rx_packets 
                 << std::endl;
     } else {
-      std::cout << " Average UDP download latency [s]:\tno packets received" << std::endl;
-      std::cout << " Average UDP download jitter [s]:\tno packets received" << std::endl;      
+      std::cout << " Average VoIP download latency [s]:\tno packets received" << std::endl;
+      std::cout << " Average VoIP download jitter [s]:\tno packets received" << std::endl;      
     }
-    if ( total_UDP_download_tx_packets > 0 ) {
-      std::cout << " Average UDP download loss rate:\t" 
-                <<  1.0 - ( double(total_UDP_download_rx_packets) / double(total_UDP_download_tx_packets) )
+    if ( total_VoIP_download_tx_packets > 0 ) {
+      std::cout << " Average VoIP download loss rate:\t" 
+                <<  1.0 - ( double(total_VoIP_download_rx_packets) / double(total_VoIP_download_tx_packets) )
                 << std::endl;
     } else {
-     std::cout << " Average UDP download loss rate:\tno packets sent" << std::endl;     
+     std::cout << " Average VoIP download loss rate:\tno packets sent" << std::endl;     
     }
 
     std::cout << "\n" 
@@ -3921,51 +4030,57 @@ if(false) {
               << number_of_TCP_download_flows << "\n"
               << " Total TCP download throughput [bps]\t"
               << total_TCP_download_throughput << "\n";
+
+    std::cout << "\n" 
+              << " Number video download flows\t\t"
+              << number_of_video_download_flows << "\n"
+              << " Total video download throughput [bps]\t"
+              << total_video_download_throughput << "\n";
   }
 
   // save the average values to a file 
   std::ofstream ofs;
   ofs.open ( outputFileName + "_average.txt", std::ofstream::out | std::ofstream::app); // with "app", all output operations happen at the end of the file, appending to its existing contents
   ofs << outputFileSurname << "\t"
-      << "Number UDP upload flows" << "\t"
+      << "Number VoIP upload flows" << "\t"
       << number_of_UDP_upload_flows << "\t";
-  if ( total_UDP_upload_rx_packets > 0 ) {
-    ofs << "Average UDP upload latency [s]" << "\t"
-        << total_UDP_upload_latency / total_UDP_upload_rx_packets << "\t"
-        << "Average UDP upload jitter [s]" << "\t"
-        << total_UDP_upload_jitter / total_UDP_upload_rx_packets << "\t";
+  if ( total_VoIP_upload_rx_packets > 0 ) {
+    ofs << "Average VoIP upload latency [s]" << "\t"
+        << total_VoIP_upload_latency / total_VoIP_upload_rx_packets << "\t"
+        << "Average VoIP upload jitter [s]" << "\t"
+        << total_VoIP_upload_jitter / total_VoIP_upload_rx_packets << "\t";
   } else {
-    ofs << "Average UDP upload latency [s]" << "\t"
+    ofs << "Average VoIP upload latency [s]" << "\t"
         << "\t"
-        << "Average UDP upload jitter [s]" << "\t"
+        << "Average VoIP upload jitter [s]" << "\t"
         << "\t";
   }
-  if ( total_UDP_upload_tx_packets > 0 ) {
-    ofs << "Average UDP upload loss rate" << "\t"
-        << 1.0 - ( double(total_UDP_upload_rx_packets) / double(total_UDP_upload_tx_packets) ) << "\t";
+  if ( total_VoIP_upload_tx_packets > 0 ) {
+    ofs << "Average VoIP upload loss rate" << "\t"
+        << 1.0 - ( double(total_VoIP_upload_rx_packets) / double(total_VoIP_upload_tx_packets) ) << "\t";
   } else {
-    ofs << "Average UDP upload loss rate" << "\t"
+    ofs << "Average VoIP upload loss rate" << "\t"
         << "\t";
   }
 
-  ofs << "Number UDP download flows" << "\t"
+  ofs << "Number VoIP download flows" << "\t"
       << number_of_UDP_download_flows << "\t";
-  if ( total_UDP_download_rx_packets > 0 ) {
-    ofs << "Average UDP download latency [s]" << "\t"
-        << total_UDP_download_latency / total_UDP_download_rx_packets << "\t"
-        << "Average UDP download jitter [s]" << "\t"
-        << total_UDP_download_jitter / total_UDP_download_rx_packets << "\t";
+  if ( total_VoIP_download_rx_packets > 0 ) {
+    ofs << "Average VoIP download latency [s]" << "\t"
+        << total_VoIP_download_latency / total_VoIP_download_rx_packets << "\t"
+        << "Average VoIP download jitter [s]" << "\t"
+        << total_VoIP_download_jitter / total_VoIP_download_rx_packets << "\t";
   } else {
-    ofs << "Average UDP download latency [s]" << "\t"
+    ofs << "Average VoIP download latency [s]" << "\t"
         << "\t"
-        << "Average UDP download jitter [s]" << "\t"
+        << "Average VoIP download jitter [s]" << "\t"
         << "\t";
   }
-  if ( total_UDP_download_tx_packets > 0 ) {
-    ofs << "Average UDP download loss rate" << "\t"
-        << 1.0 - ( double(total_UDP_download_rx_packets) / double(total_UDP_download_tx_packets) ) << "\t";
+  if ( total_VoIP_download_tx_packets > 0 ) {
+    ofs << "Average VoIP download loss rate" << "\t"
+        << 1.0 - ( double(total_VoIP_download_rx_packets) / double(total_VoIP_download_tx_packets) ) << "\t";
   } else {
-    ofs << "Average UDP download loss rate" << "\t"
+    ofs << "Average VoIP download loss rate" << "\t"
         << "\t";
   }
 
@@ -3978,6 +4093,11 @@ if(false) {
       << number_of_TCP_download_flows << "\t"
       << "Total TCP download throughput [bps]" << "\t"
       << total_TCP_download_throughput << "\t";
+
+  ofs << "Number video download flows" << "\t"
+      << number_of_video_download_flows << "\t"
+      << "Total video download throughput [bps]" << "\t"
+      << total_video_download_throughput << "\t";
 
   ofs << "Duration of the simulation [s]" << "\t"
       << simulationTime << "\n";
