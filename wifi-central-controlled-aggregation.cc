@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v151
+ * v152
  * Developed and tested for ns-3.26, although the simulation crashes in some cases. One example:
  *    - more than one AP
  *    - set the RtsCtsThreshold below 48000
@@ -235,11 +235,92 @@ using namespace ns3;
                               // http://chimera.labs.oreilly.com/books/1234000001739/ch03.html
                               // https://www.nsnam.org/doxygen/classns3_1_1_sta_wifi_mac.html
 
+#define INITIALPORT 1000      // The value of the port for the first communication (probably VoIP upload)
+
 // Define a log component
 NS_LOG_COMPONENT_DEFINE ("SimpleMpduAggregation");
 
 
 /********* FUNCTIONS ************/
+FlowMonitorHelper flowmon;  // FIXME avoid this global variable
+
+
+// Struct for storing the statistics of the VoIP flows
+struct VoIPStatistics {
+  double acumDelay;
+  double acumJitter;
+  uint32_t acumNumPackets;
+};
+
+
+// Obtain periodically the statistics of the VoIP flows, using Flowmonitor
+void obtainStats (Ptr<FlowMonitor> monitor/*, FlowMonitorHelper flowmon*/, 
+                  VoIPStatistics* myVoIPStatistics,
+                  uint16_t numberVoIPuploadFlows,
+                  uint16_t numberVoIPdownloadFlows)
+{
+  monitor->CheckForLostPackets ();
+  Ptr<Ipv4FlowClassifier> classifier = DynamicCast<Ipv4FlowClassifier> (flowmon.GetClassifier ());
+
+  // for each flow
+  std::map<FlowId, FlowMonitor::FlowStats> stats = monitor->GetFlowStats ();
+  uint32_t k = 0;
+  for (std::map<FlowId, FlowMonitor::FlowStats>::const_iterator i = stats.begin (); i != stats.end (); ++i)
+  {
+    Ipv4FlowClassifier::FiveTuple t = classifier->FindFlow (i->first);
+
+    // VoIP upload flows
+    if (  (t.destinationPort >= INITIALPORT ) && 
+          (t.destinationPort < INITIALPORT + numberVoIPuploadFlows )) {
+      // obtain the average latency only in the last interval
+      double averageLatency = (i->second.delaySum.GetSeconds() - myVoIPStatistics[k].acumDelay) / 
+                              (i->second.rxPackets - myVoIPStatistics[k].acumNumPackets);
+
+      std::cout << "myacumDelaySumVoIPupload flow " << k << ": "<< myVoIPStatistics[k].acumDelay << "\n";
+      std::cout << "Acum latency flow " << i->first << ": " << i->second.delaySum.GetSeconds() << "\n";
+      std::cout << "Latency flow " << i->first << ": " << averageLatency << "\n";
+      std::cout << "Number of packets flow " << i->first << ": " << i->second.rxPackets << "\n";
+
+      //flow->second.jitterSum.GetSeconds();
+
+      myVoIPStatistics[k].acumDelay = i->second.delaySum.GetSeconds();
+      myVoIPStatistics[k].acumNumPackets = i->second.rxPackets;
+
+
+    // VoIP download
+    } else if ( (t.destinationPort >= INITIALPORT + numberVoIPuploadFlows ) && 
+              (t.destinationPort < INITIALPORT + numberVoIPuploadFlows + numberVoIPdownloadFlows ) ) { 
+      // obtain the average latency only in the last interval
+      double averageLatency = (i->second.delaySum.GetSeconds() - myVoIPStatistics[k].acumDelay) / 
+                              (i->second.rxPackets - myVoIPStatistics[k].acumNumPackets);
+
+      std::cout << "myacumDelaySumVoIPdownload flow " << k << ": "<< myVoIPStatistics[k].acumDelay << "\n";
+      std::cout << "Acum latency flow " << i->first << ": " << i->second.delaySum.GetSeconds() << "\n";
+      std::cout << "Latency flow " << i->first << ": " << averageLatency << "\n";
+      std::cout << "Number of packets flow " << i->first << ": " << i->second.rxPackets << "\n";
+
+      //flow->second.jitterSum.GetSeconds();
+
+      myVoIPStatistics[k].acumDelay = i->second.delaySum.GetSeconds();
+      myVoIPStatistics[k].acumNumPackets = i->second.rxPackets;
+    }
+    
+    k ++;
+  }
+
+  // Reschedule the calculation
+  Simulator::Schedule(  Seconds(1.0),
+                        &obtainStats,
+                        monitor/*, flowmon*/, 
+                        myVoIPStatistics,
+                        numberVoIPuploadFlows,
+                        numberVoIPdownloadFlows);
+
+  /*monitor->StopRightNow();
+    monitor->StartRightNow();*/
+
+}
+
 
 // Change the frequency of a STA
 // Copied from https://groups.google.com/forum/#!topic/ns-3-users/Ih8Hgs2qgeg
@@ -1682,7 +1763,7 @@ int main (int argc, char *argv[]) {
   static uint32_t VoIPg729PayoladSize = 32; // Size of the UDP payload (also includes the RTP header) of a G729a packet with 2 samples
   static double VoIPg729IPT = 0.02; // Time between g729a packets (50 pps)
 
-  static uint32_t initial_port = 1000; // port to be used by the VoIP uplink application. Subsequent ones will be used by the other applications
+  static uint16_t initial_port = INITIALPORT; // port to be used by the VoIP uplink application. Subsequent ones will be used by the other applications
   static uint32_t initial_time_interval = 1.0; // time before the applications start (seconds). The same amount of time is added at the end
 
   static double x_position_first_AP = 0.0;
@@ -1721,11 +1802,11 @@ int main (int argc, char *argv[]) {
 
   double simulationTime = 10.0; //seconds
 
-  uint32_t numberVoIPupload = 0;
-  uint32_t numberVoIPdownload = 0;
-  uint32_t numberTCPupload = 0;
-  uint32_t numberTCPdownload = 0;
-  uint32_t numberVideoDownload = 0;
+  uint16_t numberVoIPupload = 0;
+  uint16_t numberVoIPdownload = 0;
+  uint16_t numberTCPupload = 0;
+  uint16_t numberTCPdownload = 0;
+  uint16_t numberVideoDownload = 0;
 
   //Using different priorities for VoIP and TCP
   //https://groups.google.com/forum/#!topic/ns-3-users/J3BvzGVJhXM
@@ -2018,6 +2099,17 @@ int main (int argc, char *argv[]) {
     std::cout << "Other characters to be used in the name of the output file (not in the average one): " << outputFileSurname << '\n';
     std::cout << "Save per-flow results to an XML file?: " << saveXMLFile << '\n';
     std::cout << '\n'; 
+  }
+
+
+  // Store the flowmonitor statistics of the VoIP flows
+  struct VoIPStatistics myVoIPStatistics[numberVoIPupload + numberVoIPdownload];
+
+  // Initialize to 0
+  for (uint16_t i=0; i < numberVoIPupload + numberVoIPdownload; i++) {
+    myVoIPStatistics[i].acumDelay = 0.0;
+    myVoIPStatistics[i].acumJitter = 0.0;
+    myVoIPStatistics[i].acumNumPackets = 0;
   }
 
 
@@ -3123,7 +3215,7 @@ int main (int argc, char *argv[]) {
 
   // Create a STA_record per STA, in order to store its association parameters
   NodeContainer::Iterator mynode;
-  uint32_t l = 0;
+  uint16_t l = 0;
   for (mynode = staNodes.Begin (); mynode != staNodes.End (); ++mynode) { // run this for all the STAs
 
     // This calls the constructor, i.e. the function that creates a record to store the association of each STA
@@ -3193,7 +3285,7 @@ int main (int argc, char *argv[]) {
   /************* Setting applications ***********/
 
   // Variable for setting the port of each communication
-  uint32_t port = initial_port;
+  uint16_t port = initial_port;
 
   // VoIP upload
   // UDPClient runs in the STA and UDPServer runs in the server
@@ -3391,7 +3483,7 @@ int main (int argc, char *argv[]) {
   // it will send traffic to the servers
   ApplicationContainer BulkSendTcpUp;
 
-  for (uint32_t i = numberVoIPupload + numberVoIPdownload; i < numberVoIPupload + numberVoIPdownload + numberTCPupload; i++) {
+  for (uint16_t i = numberVoIPupload + numberVoIPdownload; i < numberVoIPupload + numberVoIPdownload + numberTCPupload; i++) {
 
     PacketSinkHelper myPacketSinkTcpUp ("ns3::TcpSocketFactory",
                                         InetSocketAddress (Ipv4Address::GetAny (), port));
@@ -3462,7 +3554,7 @@ int main (int argc, char *argv[]) {
   // it will send traffic to the STAs
   ApplicationContainer BulkSendTcpDown;
 
-  for (uint32_t i = numberVoIPupload + numberVoIPdownload + numberTCPupload; 
+  for (uint16_t i = numberVoIPupload + numberVoIPdownload + numberTCPupload; 
                 i < numberVoIPupload + numberVoIPdownload + numberTCPupload + numberTCPdownload; 
                 i++) {
 
@@ -3545,7 +3637,7 @@ int main (int argc, char *argv[]) {
   uint16_t numberOfMovies = 4;
   std::uniform_int_distribution<int> uni(1,numberOfMovies); // guaranteed unbiased
 
-  for (uint32_t i = numberVoIPupload + numberVoIPdownload + numberTCPupload + numberTCPdownload; 
+  for (uint16_t i = numberVoIPupload + numberVoIPdownload + numberTCPupload + numberTCPdownload; 
                 i < numberVoIPupload + numberVoIPdownload + numberTCPupload + numberTCPdownload + numberVideoDownload; 
                 i++) {
 
@@ -3686,8 +3778,9 @@ int main (int argc, char *argv[]) {
   // Install FlowMonitor on the nodes
   // see https://www.nsnam.org/doxygen/wifi-hidden-terminal_8cc_source.html
   // and https://www.nsnam.org/docs/models/html/flow-monitor.html
-  FlowMonitorHelper flowmon;
+  //FlowMonitorHelper flowmon; // FIXME Avoid the use of a global variable 'flowmon' https://groups.google.com/forum/#!searchin/ns-3-users/const$20ns3$3A$3AFlowMonitorHelper$26)$20is$20private%7Csort:date/ns-3-users/1WbpLwvYTcM/dQUQEJKkAQAJ
   Ptr<FlowMonitor> monitor;
+
 
   // It is not necessary to monitor the APs, because I am not getting statistics from them
   if (false)
@@ -3702,6 +3795,16 @@ int main (int argc, char *argv[]) {
   } else {
     monitor = flowmon.Install(serverNodes);
   }
+
+
+  // Schedule a periodic obtaining of statistics
+  Simulator::Schedule(  Seconds(1.0),
+                        &obtainStats,
+                        monitor
+                        /*, flowmon*/, // FIXME Avoid the use of a global variable 'flowmon'
+                        myVoIPStatistics,
+                        numberVoIPupload,
+                        numberVoIPdownload);
 
 
   // mobility trace
@@ -3922,6 +4025,7 @@ if(false) {
 
     }
 
+
     // create a string with the characteristics of the flow
     std::ostringstream flowID;
 
@@ -3931,6 +4035,7 @@ if(false) {
             << t.sourcePort << "\t" 
             << t.destinationAddress << "\t"
             << t.destinationPort;
+
     // UDP upload flows
     if (  (t.destinationPort >= initial_port ) && 
           (t.destinationPort <  initial_port + numberVoIPupload )) {
@@ -3951,8 +4056,6 @@ if(false) {
                 (t.destinationPort <  initial_port + numberVoIPupload + numberVoIPdownload + numberTCPupload + numberTCPdownload + numberVideoDownload)) { 
       flowID << "\t Video download";
     } 
-
-    // FIXME: Add to flowID a new string "VoIP", "TCP", "Video"
 
     // create a string with the name of the output file
     std::ostringstream nameFlowFile, surnameFlowFile;
