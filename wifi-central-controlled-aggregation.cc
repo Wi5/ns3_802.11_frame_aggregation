@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v152
+ * v154
  * Developed and tested for ns-3.26, although the simulation crashes in some cases. One example:
  *    - more than one AP
  *    - set the RtsCtsThreshold below 48000
@@ -257,64 +257,64 @@ struct VoIPStatistics {
 void obtainStats (Ptr<FlowMonitor> monitor/*, FlowMonitorHelper flowmon*/, 
                   VoIPStatistics* myVoIPStatistics,
                   uint16_t numberVoIPuploadFlows,
-                  uint16_t numberVoIPdownloadFlows)
+                  uint16_t numberVoIPdownloadFlows,
+                  uint32_t verboseLevel,
+                  double timeInterval)  //Interval between monitoring moments
 {
   monitor->CheckForLostPackets ();
   Ptr<Ipv4FlowClassifier> classifier = DynamicCast<Ipv4FlowClassifier> (flowmon.GetClassifier ());
 
   // for each flow
   std::map<FlowId, FlowMonitor::FlowStats> stats = monitor->GetFlowStats ();
-  uint32_t k = 0;
+  uint16_t k = 0;
   for (std::map<FlowId, FlowMonitor::FlowStats>::const_iterator i = stats.begin (); i != stats.end (); ++i)
   {
     Ipv4FlowClassifier::FiveTuple t = classifier->FindFlow (i->first);
 
-    // VoIP upload flows
+    // VoIP flows
     if (  (t.destinationPort >= INITIALPORT ) && 
-          (t.destinationPort < INITIALPORT + numberVoIPuploadFlows )) {
-      // obtain the average latency only in the last interval
+          (t.destinationPort < INITIALPORT + numberVoIPuploadFlows + numberVoIPdownloadFlows )) {
+
+      // obtain the average latency and jitter only in the last interval
       double averageLatency = (i->second.delaySum.GetSeconds() - myVoIPStatistics[k].acumDelay) / 
                               (i->second.rxPackets - myVoIPStatistics[k].acumNumPackets);
 
-      std::cout << "myacumDelaySumVoIPupload flow " << k << ": "<< myVoIPStatistics[k].acumDelay << "\n";
-      std::cout << "Acum latency flow " << i->first << ": " << i->second.delaySum.GetSeconds() << "\n";
-      std::cout << "Latency flow " << i->first << ": " << averageLatency << "\n";
-      std::cout << "Number of packets flow " << i->first << ": " << i->second.rxPackets << "\n";
-
-      //flow->second.jitterSum.GetSeconds();
-
-      myVoIPStatistics[k].acumDelay = i->second.delaySum.GetSeconds();
-      myVoIPStatistics[k].acumNumPackets = i->second.rxPackets;
-
-
-    // VoIP download
-    } else if ( (t.destinationPort >= INITIALPORT + numberVoIPuploadFlows ) && 
-              (t.destinationPort < INITIALPORT + numberVoIPuploadFlows + numberVoIPdownloadFlows ) ) { 
-      // obtain the average latency only in the last interval
-      double averageLatency = (i->second.delaySum.GetSeconds() - myVoIPStatistics[k].acumDelay) / 
+      double averageJitter = (i->second.jitterSum.GetSeconds() - myVoIPStatistics[k].acumJitter) / 
                               (i->second.rxPackets - myVoIPStatistics[k].acumNumPackets);
 
-      std::cout << "myacumDelaySumVoIPdownload flow " << k << ": "<< myVoIPStatistics[k].acumDelay << "\n";
-      std::cout << "Acum latency flow " << i->first << ": " << i->second.delaySum.GetSeconds() << "\n";
-      std::cout << "Latency flow " << i->first << ": " << averageLatency << "\n";
-      std::cout << "Number of packets flow " << i->first << ": " << i->second.rxPackets << "\n";
+      if (verboseLevel > 0) {
 
-      //flow->second.jitterSum.GetSeconds();
+        std::cout << Simulator::Now();
+        std::cout << "\t[obtainStats] flow " << i->first;
+        if (t.destinationPort < INITIALPORT + numberVoIPuploadFlows )
+          std::cout << "\tVoIP upload\n";
+        else
+          std::cout << "\tVoIP download\n";
+        if (verboseLevel > 1) {
+          std::cout << "\t\t\tAcum delay at the beginning of the period: "<< myVoIPStatistics[k].acumDelay << "\n";
+          std::cout << "\t\t\tAcum delay at the end of the period: " << i->second.delaySum.GetSeconds() << "\n";
+        }
+        std::cout << "\t\t\tNumber of packets this period: " << i->second.rxPackets << "\n";
+        std::cout << "\t\t\tAverage delay this period: " << averageLatency << "\n";
+        std::cout << "\t\t\tAverage jitter this period: " << averageJitter << "\n";
+      }
 
       myVoIPStatistics[k].acumDelay = i->second.delaySum.GetSeconds();
+      myVoIPStatistics[k].acumJitter = i->second.jitterSum.GetSeconds();
       myVoIPStatistics[k].acumNumPackets = i->second.rxPackets;
-    }
-    
+    }  
     k ++;
   }
 
   // Reschedule the calculation
-  Simulator::Schedule(  Seconds(1.0),
+  Simulator::Schedule(  Seconds(timeInterval),
                         &obtainStats,
                         monitor/*, flowmon*/, 
                         myVoIPStatistics,
                         numberVoIPuploadFlows,
-                        numberVoIPdownloadFlows);
+                        numberVoIPdownloadFlows,
+                        verboseLevel,
+                        timeInterval);
 
   /*monitor->StopRightNow();
     monitor->StartRightNow();*/
@@ -1802,6 +1802,8 @@ int main (int argc, char *argv[]) {
 
   double simulationTime = 10.0; //seconds
 
+  double timeMonitorDelay = 1.0;  //seconds
+
   uint16_t numberVoIPupload = 0;
   uint16_t numberVoIPdownload = 0;
   uint16_t numberTCPupload = 0;
@@ -1863,7 +1865,9 @@ int main (int argc, char *argv[]) {
   CommandLine cmd;
 
   // General scenario topology parameters
-  cmd.AddValue ("simulationTime", "Simulation time in seconds", simulationTime);
+  cmd.AddValue ("simulationTime", "Simulation time [s]", simulationTime);
+  
+  cmd.AddValue ("timeMonitorDelay", "Time interval to monitor VoIP delay [s] (0 means no monitoring)", timeMonitorDelay);
 
   cmd.AddValue ("numberVoIPupload", "Number of nodes running VoIP up", numberVoIPupload);
   cmd.AddValue ("numberVoIPdownload", "Number of nodes running VoIP down", numberVoIPdownload);
@@ -2045,6 +2049,7 @@ int main (int argc, char *argv[]) {
 
     // General scenario topology parameters
     std::cout << "Simulation Time: " << simulationTime <<" sec" << '\n';
+    std::cout << "Time interval to monitor VoIP delay [s] (0 means no monitoring): " << timeMonitorDelay <<" sec" << '\n';
     std::cout << "Number of nodes running VoIP up: " << numberVoIPupload << '\n';
     std::cout << "Number of nodes running VoIP down: " << numberVoIPdownload << '\n';
     std::cout << "Number of nodes running TCP up: " << numberTCPupload << '\n';
@@ -3288,7 +3293,7 @@ int main (int argc, char *argv[]) {
   uint16_t port = initial_port;
 
   // VoIP upload
-  // UDPClient runs in the STA and UDPServer runs in the server
+  // UDPClient runs in the STA and UDPServer runs in the server(s)
   // traffic goes STA -> server
   UdpServerHelper myVoipUpServer;
   ApplicationContainer VoipUpServer;
@@ -3362,7 +3367,7 @@ int main (int argc, char *argv[]) {
 
 
   // VoIP download
-  // UDPClient in the AP and UDPServer in the STA
+  // UDPClient in the server(s) and UDPServer in the STA
   // traffic goes Server -> STA
   // I have taken this as an example: https://groups.google.com/forum/#!topic/ns-3-users/ej8LaxQO1Gc
   // UdpServer runs in each STA. It waits for input UDP packets and uses the
@@ -3546,7 +3551,6 @@ int main (int argc, char *argv[]) {
 
 
   // TCP download
-
   // Create a PacketSink Application and install it on the wifi STAs
   ApplicationContainer PacketSinkTcpDown;
 
@@ -3798,13 +3802,16 @@ int main (int argc, char *argv[]) {
 
 
   // Schedule a periodic obtaining of statistics
-  Simulator::Schedule(  Seconds(1.0),
-                        &obtainStats,
-                        monitor
-                        /*, flowmon*/, // FIXME Avoid the use of a global variable 'flowmon'
-                        myVoIPStatistics,
-                        numberVoIPupload,
-                        numberVoIPdownload);
+  if (timeMonitorDelay > 0.0)
+    Simulator::Schedule(  Seconds(initial_time_interval),
+                          &obtainStats,
+                          monitor
+                          /*, flowmon*/, // FIXME Avoid the use of a global variable 'flowmon'
+                          myVoIPStatistics,
+                          numberVoIPupload,
+                          numberVoIPdownload,
+                          verboseLevel,
+                          timeMonitorDelay);
 
 
   // mobility trace
@@ -4127,7 +4134,7 @@ if(false) {
 
     if ( total_VoIP_upload_rx_packets > 0 ) {
       std::cout << " Average VoIP upload latency [s]:\t" << total_VoIP_upload_latency / total_VoIP_upload_rx_packets << std::endl;
-      std::cout << " Average VoIP upload jitter [s]:\t\t" << total_VoIP_upload_jitter / total_VoIP_upload_rx_packets << std::endl;
+      std::cout << " Average VoIP upload jitter [s]:\t" << total_VoIP_upload_jitter / total_VoIP_upload_rx_packets << std::endl;
     } else {
       std::cout << " Average VoIP upload latency [s]:\tno packets received" << std::endl;
       std::cout << " Average VoIP upload jitter [s]:\tno packets received" << std::endl;      
