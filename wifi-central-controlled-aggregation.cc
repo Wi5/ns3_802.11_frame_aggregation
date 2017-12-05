@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v155
+ * v156
  * Developed and tested for ns-3.26, although the simulation crashes in some cases. One example:
  *    - more than one AP
  *    - set the RtsCtsThreshold below 48000
@@ -1144,7 +1144,7 @@ class STA_record
     void SetVerboseLevel (uint32_t myVerboseLevel);
     void SetnumChannels (uint32_t mynumChannels);
     void Setversion80211 (uint32_t myversion80211);
-    void SetaggregationLimitAlgorithm (uint32_t myaggregationLimitAlgorithm);
+    void SetaggregationLimitAlgorithm (uint16_t myaggregationLimitAlgorithm);
     void SetAmpduSize (uint32_t myAmpduSize);
     void SetmaxAmpduSizeWhenAggregationLimited (uint32_t mymaxAmpduSizeWhenAggregationLimited);
     void SetWifiModel (uint32_t mywifiModel);
@@ -1157,7 +1157,7 @@ class STA_record
     uint32_t staRecordVerboseLevel;
     uint32_t staRecordNumChannels;
     uint32_t staRecordVersion80211;
-    uint32_t staRecordaggregationLimitAlgorithm;
+    uint16_t staRecordaggregationLimitAlgorithm;
     uint32_t staRecordMaxAmpduSize;
     uint32_t staRecordmaxAmpduSizeWhenAggregationLimited;
     uint32_t staRecordwifiModel;
@@ -1658,7 +1658,7 @@ STA_record::Setversion80211 (uint32_t myversion80211)
 }
 
 void
-STA_record::SetaggregationLimitAlgorithm (uint32_t myaggregationLimitAlgorithm)
+STA_record::SetaggregationLimitAlgorithm (uint16_t myaggregationLimitAlgorithm)
 {
   staRecordaggregationLimitAlgorithm = myaggregationLimitAlgorithm;
 }
@@ -1788,8 +1788,11 @@ int main (int argc, char *argv[]) {
 
   double rateAPsWithAMPDUenabled = 1.0; // rate of APs with A-MPDU enabled at the beginning of the simulation
 
-  uint32_t aggregationLimitAlgorithm = 1;  // Set this to 1 in order to make the central control algorithm run
+  uint16_t aggregationLimitAlgorithm = 0;  // Set this to 1 in order to make the central control algorithm limiting the AMPDU run
   uint32_t maxAmpduSizeWhenAggregationLimited = 0;  // Only for TCP. Minimum size (to be used when aggregation is 'limited')
+
+  uint16_t aggregationDynamicAlgorithm = 0;  // Set this to 1 in order to make the central control algorithm dynamically modifying AMPDU run
+  double latencyBudget = 0.0;  // This is the maximum latency (seconds) tolerated by VoIP applications
 
   uint16_t topology = 1;    // 0: all the server applications are in a single server
                             // 1: each server application is in a node connected to the hub
@@ -1895,16 +1898,20 @@ int main (int argc, char *argv[]) {
   // will always see a non-aggregating AP, whereas TCP users
   // will receive non-aggregated frames in some moments
   cmd.AddValue ("rateAPsWithAMPDUenabled", "Initial rate of APs with AMPDU aggregation enabled", rateAPsWithAMPDUenabled);
-  cmd.AddValue ("aggregationLimitAlgorithm", "Is the algorithm controlling AMPDU aggregation enabled?", aggregationLimitAlgorithm);
-  cmd.AddValue ("maxAmpduSize", "Maximum value of the AMPDU (bytes)", maxAmpduSize);
+  cmd.AddValue ("aggregationLimitAlgorithm", "Is the algorithm limiting AMPDU aggregation enabled?", aggregationLimitAlgorithm);
+  cmd.AddValue ("maxAmpduSize", "Maximum value of the AMPDU [bytes]", maxAmpduSize);
   // The objective of '--maxAmpduSizeWhenAggregationLimited=8000' is the next:
   // the algorithm is used but, instead of deactivating the aggregation,
   // a maximum size of e.g. 8 kB is set when a VoIP flow is present
   // in an AP, in order to limit the added delay.
   cmd.AddValue ("maxAmpduSizeWhenAggregationLimited", "Max AMPDU size to use when aggregation is limited", maxAmpduSizeWhenAggregationLimited);
 
+  // This algorithm dynamically adjusts AMPDU trying to keep VoIP latency below a threshold ('latencyBudget')
+  cmd.AddValue ("aggregationDynamicAlgorithm", "Is the algorithm dynamically adapting AMPDU aggregation enabled?", aggregationDynamicAlgorithm);
+  cmd.AddValue ("latencyBudget", "Maximum latency [s] tolerated by VoIP applications", latencyBudget);
+
   // TCP parameters
-  cmd.AddValue ("TcpPayloadSize", "Payload size in bytes", TcpPayloadSize);
+  cmd.AddValue ("TcpPayloadSize", "Payload size [bytes]", TcpPayloadSize);
   cmd.AddValue ("TcpVariant", "TCP variant: TcpNewReno (default), TcpHighSpped, TcpWestwoodPlus", TcpVariant);
 
   // 802.11 priorities, version, channels
@@ -1977,9 +1984,44 @@ int main (int argc, char *argv[]) {
     }
   }
 
+  if ((aggregationLimitAlgorithm == 1 ) && (rateAPsWithAMPDUenabled < 1.0 )) {
+    std::cout << "INPUT PARAMETER ERROR: The algorithm has to start with all the APs with A-MPDU enabled (--rateAPsWithAMPDUenabled=1.0). Stopping the simulation." << '\n';
+    return 0;
+  }
+
   if ( maxAmpduSizeWhenAggregationLimited > maxAmpduSize ) {
-      std::cout << "INPUT PARAMETER ERROR: The Max AMPDU size to use when aggregation is limited (" << maxAmpduSizeWhenAggregationLimited << ") has to be smaller or equal than the Max AMPDU size (" << maxAmpduSize << "). Stopping the simulation." << '\n';      
-      return 0;        
+    std::cout << "INPUT PARAMETER ERROR: The Max AMPDU size to use when aggregation is limited (" << maxAmpduSizeWhenAggregationLimited << ") has to be smaller or equal than the Max AMPDU size (" << maxAmpduSize << "). Stopping the simulation." << '\n';      
+    return 0;        
+  }
+
+  if ((maxAmpduSizeWhenAggregationLimited > 0 ) && ( aggregationLimitAlgorithm == 0 ) ) {
+    std::cout << "INPUT PARAMETER ERROR: You cannot set 'maxAmpduSizeWhenAggregationLimited' if 'aggregationLimitAlgorithm' is not active. Stopping the simulation." << '\n';      
+    return 0;        
+  }
+
+  if ((aggregationLimitAlgorithm == 1 ) && (aggregationDynamicAlgorithm == 1 )) {
+    std::cout << "INPUT PARAMETER ERROR: Only one algorithm for modifying AMPDU can be active ('aggregationLimitAlgorithm' and 'aggregationDynamicAlgorithm'). Stopping the simulation." << '\n';      
+    return 0;
+  }
+
+  if ((aggregationDynamicAlgorithm == 1 ) && (rateAPsWithAMPDUenabled < 1.0 )) {
+    std::cout << "INPUT PARAMETER ERROR: The algorithm has to start with all the APs with A-MPDU enabled (--rateAPsWithAMPDUenabled=1.0). Stopping the simulation." << '\n';
+    return 0;
+  }
+
+  if ((aggregationDynamicAlgorithm == 1 ) && (timeMonitorDelay == 0)) {
+    std::cout << "INPUT PARAMETER ERROR: The algorithm for dynamic AMPDU adaptation (--aggregationDynamicAlgorithm=1) requires delay monitoring ('timeMonitorDelay' should not be 0.0). Stopping the simulation." << '\n';
+    return 0;
+  }
+
+  if ((aggregationDynamicAlgorithm == 1 ) && (latencyBudget == 0.0)) {
+    std::cout << "INPUT PARAMETER ERROR: The algorithm for dynamic AMPDU adaptation (--aggregationDynamicAlgorithm=1) requires a latency budget ('latencyBudget' should not be 0.0). Stopping the simulation." << '\n';
+    return 0;
+  }
+
+  if ((aggregationDynamicAlgorithm == 1 ) && (numberVoIPupload + numberVoIPdownload == 0)) {
+    std::cout << "INPUT PARAMETER ERROR: The algorithm for dynamic AMPDU adaptation (--aggregationDynamicAlgorithm=1) cannot work if there are no VoIP applications. Stopping the simulation." << '\n';
+    return 0;
   }
 
   if ((rateModel != "Constant") && (rateModel != "Ideal") && (rateModel != "Minstrel")) {
@@ -1997,11 +2039,6 @@ int main (int argc, char *argv[]) {
       std::cout << "INPUT PARAMETER ERROR: With static and linear mobility, the number of STAs MUST be a multiple of the number of STAs per row. Stopping the simulation." << '\n';
       return 0;
     }
-  }
-
-  if ((aggregationLimitAlgorithm == 1 ) && (rateAPsWithAMPDUenabled < 1.0 )) {
-    std::cout << "INPUT PARAMETER ERROR: The algorithm has to start with all the APs with A-MPDU enabled (--rateAPsWithAMPDUenabled=1.0). Stopping the simulation." << '\n';
-    return 0;
   }
 
   // check if the channel width is correct
@@ -2077,9 +2114,11 @@ int main (int argc, char *argv[]) {
     std::cout << '\n';
     // Aggregation parameters    
     std::cout << "Initial rate of APs with AMPDU aggregation enabled: " << rateAPsWithAMPDUenabled << '\n';
-    std::cout << "Is the algorithm controlling AMPDU aggregation enabled?: " << aggregationLimitAlgorithm << '\n';
+    std::cout << "Is the algorithm limiting AMPDU aggregation enabled?: " << aggregationLimitAlgorithm << '\n';
     std::cout << "Maximum value of the AMPDU size: " << maxAmpduSize << " bytes" << '\n';
     std::cout << "Maximum value of the AMPDU size when aggregation is limited: " << maxAmpduSizeWhenAggregationLimited << " bytes" << '\n';
+    std::cout << "Is the algorithm dynamically adapting AMPDU aggregation enabled?" << aggregationDynamicAlgorithm << '\n';
+    std::cout << "Maximum latency tolerated by VoIP applications" << latencyBudget << " s" << '\n';
     std::cout << '\n';
     // TCP parameters
     std::cout << "TCP Payload size: " << TcpPayloadSize << " bytes"  << '\n';
