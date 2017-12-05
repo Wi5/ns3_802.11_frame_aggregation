@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v154
+ * v155
  * Developed and tested for ns-3.26, although the simulation crashes in some cases. One example:
  *    - more than one AP
  *    - set the RtsCtsThreshold below 48000
@@ -148,7 +148,7 @@ Two possibilities:
 
 // When the default aggregation parameters are enabled, the
 // maximum A-MPDU size is the one defined by the standard, and the throughput is maximal.
-// When aggregation is disabled, the thoughput is lower
+// When aggregation is limited, the thoughput is lower
 //
 // Packets in this simulation can be marked with a QosTag so they
 // will be considered belonging to  different queues.
@@ -1144,9 +1144,9 @@ class STA_record
     void SetVerboseLevel (uint32_t myVerboseLevel);
     void SetnumChannels (uint32_t mynumChannels);
     void Setversion80211 (uint32_t myversion80211);
-    void SetaggregationAlgorithm (uint32_t myaggregationAlgorithm);
+    void SetaggregationLimitAlgorithm (uint32_t myaggregationLimitAlgorithm);
     void SetAmpduSize (uint32_t myAmpduSize);
-    void SetmaxAmpduSizeWhenAggregationDisabled (uint32_t mymaxAmpduSizeWhenAggregationDisabled);
+    void SetmaxAmpduSizeWhenAggregationLimited (uint32_t mymaxAmpduSizeWhenAggregationLimited);
     void SetWifiModel (uint32_t mywifiModel);
   private:
     bool assoc;
@@ -1157,9 +1157,9 @@ class STA_record
     uint32_t staRecordVerboseLevel;
     uint32_t staRecordNumChannels;
     uint32_t staRecordVersion80211;
-    uint32_t staRecordAggregationAlgorithm;
+    uint32_t staRecordaggregationLimitAlgorithm;
     uint32_t staRecordMaxAmpduSize;
-    uint32_t staRecordMaxAmpduSizeWhenAggregationDisabled;
+    uint32_t staRecordmaxAmpduSizeWhenAggregationLimited;
     uint32_t staRecordwifiModel;
 };
 
@@ -1174,9 +1174,9 @@ STA_record::STA_record ()
   staRecordVerboseLevel = 0;
   staRecordNumChannels = 0;
   staRecordVersion80211 = 0;
-  staRecordAggregationAlgorithm = 0;
+  staRecordaggregationLimitAlgorithm = 0;
   staRecordMaxAmpduSize = 0;
-  staRecordMaxAmpduSizeWhenAggregationDisabled = 0;
+  staRecordmaxAmpduSizeWhenAggregationLimited = 0;
   staRecordwifiModel = 0;
 }
 
@@ -1269,7 +1269,7 @@ STA_record::SetAssoc (std::string context, Mac48Address AP_MAC_address)
               << "" << std::endl;
 
   // This part only runs if the aggregation algorithm is activated
-  if (staRecordAggregationAlgorithm == 1) {
+  if (staRecordaggregationLimitAlgorithm == 1) {
     // check if the STA associated to the AP is running VoIP. In this case, I have to disable aggregation:
     // - in the AP
     // - in all the associated STAs
@@ -1281,12 +1281,12 @@ STA_record::SetAssoc (std::string context, Mac48Address AP_MAC_address)
       if ( GetAP_MaxSizeAmpdu ( GetAnAP_Id(myaddress), staRecordVerboseLevel ) > 0 ) {
 
         // I modify the A-MPDU of this AP
-        ModifyAmpdu ( GetAnAP_Id(myaddress), staRecordMaxAmpduSizeWhenAggregationDisabled, 1 );
+        ModifyAmpdu ( GetAnAP_Id(myaddress), staRecordmaxAmpduSizeWhenAggregationLimited, 1 );
 
         // Modify the data in the table of APs
         //for (AP_recordVector::const_iterator index = AP_vector.begin (); index != AP_vector.end (); index++) {
           //if ( (*index)->GetMac () == myaddress ) {
-            Modify_AP_Record ( GetAnAP_Id(myaddress), myaddress, staRecordMaxAmpduSizeWhenAggregationDisabled);
+            Modify_AP_Record ( GetAnAP_Id(myaddress), myaddress, staRecordmaxAmpduSizeWhenAggregationLimited);
             //std::cout << Simulator::Now () << "\t[GetAnAP_Id] AP #" << (*index)->GetApid() << " has MAC: " << (*index)->GetMac() << "" << std::endl;
         //  }
         //}
@@ -1295,8 +1295,8 @@ STA_record::SetAssoc (std::string context, Mac48Address AP_MAC_address)
           std::cout << Simulator::Now () 
                     << "\t[SetAssoc] Aggregation in AP #" << GetAnAP_Id(myaddress) 
                     << "\twith MAC: " << myaddress 
-                    << "\tset to " << staRecordMaxAmpduSizeWhenAggregationDisabled 
-                    << "\t(disabled)" << std::endl;
+                    << "\tset to " << staRecordmaxAmpduSizeWhenAggregationLimited 
+                    << "\t(limited)" << std::endl;
 
         // disable aggregation in all the STAs associated to that AP
         for (STA_recordVector::const_iterator index = assoc_vector.begin (); index != assoc_vector.end (); index++) {
@@ -1310,16 +1310,16 @@ STA_record::SetAssoc (std::string context, Mac48Address AP_MAC_address)
               // if the STA is associated to this AP
               if ((*index)->GetMac() == AP_MAC_address ) {
 
-                ModifyAmpdu ((*index)->GetStaid(), staRecordMaxAmpduSizeWhenAggregationDisabled, 1);   // modify the AMPDU in the STA node
-                (*index)->SetMaxSizeAmpdu(staRecordMaxAmpduSizeWhenAggregationDisabled);               // update the data in the STA_record structure
+                ModifyAmpdu ((*index)->GetStaid(), staRecordmaxAmpduSizeWhenAggregationLimited, 1);   // modify the AMPDU in the STA node
+                (*index)->SetMaxSizeAmpdu(staRecordmaxAmpduSizeWhenAggregationLimited);               // update the data in the STA_record structure
 
                 if (staRecordVerboseLevel > 0)
                   std::cout << Simulator::Now () 
                             << "\t[SetAssoc] Aggregation in STA #" << (*index)->GetStaid() 
                             << ", associated to AP #" << GetAnAP_Id(myaddress) 
                             << "\twith MAC " << (*index)->GetMac() 
-                            << "\tset to " << staRecordMaxAmpduSizeWhenAggregationDisabled 
-                            << "\t(disabled)" << std::endl;
+                            << "\tset to " << staRecordmaxAmpduSizeWhenAggregationLimited 
+                            << "\t(limited)" << std::endl;
               }
             }
           }
@@ -1333,8 +1333,8 @@ STA_record::SetAssoc (std::string context, Mac48Address AP_MAC_address)
       if ( GetAP_MaxSizeAmpdu ( GetAnAP_Id(myaddress), staRecordVerboseLevel ) == 0) {
 
         // Disable aggregation in this STA
-        ModifyAmpdu (staid, staRecordMaxAmpduSizeWhenAggregationDisabled, 1);  // modify the AMPDU in the STA node
-        staRecordMaxSizeAmpdu = staRecordMaxAmpduSizeWhenAggregationDisabled;        // update the data in the STA_record structure
+        ModifyAmpdu (staid, staRecordmaxAmpduSizeWhenAggregationLimited, 1);  // modify the AMPDU in the STA node
+        staRecordMaxSizeAmpdu = staRecordmaxAmpduSizeWhenAggregationLimited;        // update the data in the STA_record structure
 
         if (staRecordVerboseLevel > 0)
           std::cout << Simulator::Now () 
@@ -1342,7 +1342,7 @@ STA_record::SetAssoc (std::string context, Mac48Address AP_MAC_address)
                     << ", associated to AP #" << GetAnAP_Id(myaddress) 
                     << "\twith MAC " << apMac
                     << "\tset to " << staRecordMaxSizeAmpdu 
-                    << "\t(disabled)" << std::endl;
+                    << "\t(limited)" << std::endl;
 
   /*      for (STA_recordVector::const_iterator index = assoc_vector.begin (); index != assoc_vector.end (); index++) {
 
@@ -1356,7 +1356,7 @@ STA_record::SetAssoc (std::string context, Mac48Address AP_MAC_address)
                           << ", associated to AP #" << GetAnAP_Id(myaddress) 
                           << "\twith MAC " << (*index)->GetMac() 
                           << "\tset to " << 0 
-                          << "\t(disabled)" << std::endl;
+                          << "\t(limited)" << std::endl;
           }
         }*/
 
@@ -1427,7 +1427,7 @@ STA_record::UnsetAssoc (std::string context, Mac48Address AP_MAC_address)
               << "" << std::endl;
 
   // This only runs if the aggregation algorithm is running
-  if(staRecordAggregationAlgorithm == 1) {
+  if(staRecordaggregationLimitAlgorithm == 1) {
 
     // check if there is some VoIP STA already associated to the AP. In this case, I have to enable aggregation:
     // - in the AP
@@ -1515,7 +1515,7 @@ STA_record::UnsetAssoc (std::string context, Mac48Address AP_MAC_address)
     } else {
 
       // If the AP is not aggregating
-      if ( GetAP_MaxSizeAmpdu ( GetAnAP_Id(myaddress), staRecordVerboseLevel ) == staRecordMaxAmpduSizeWhenAggregationDisabled) {
+      if ( GetAP_MaxSizeAmpdu ( GetAnAP_Id(myaddress), staRecordVerboseLevel ) == staRecordmaxAmpduSizeWhenAggregationLimited) {
 
         // Enable aggregation in this STA
         ModifyAmpdu (staid, staRecordMaxAmpduSize, 1);  // modify the AMPDU in the STA node
@@ -1658,9 +1658,9 @@ STA_record::Setversion80211 (uint32_t myversion80211)
 }
 
 void
-STA_record::SetaggregationAlgorithm (uint32_t myaggregationAlgorithm)
+STA_record::SetaggregationLimitAlgorithm (uint32_t myaggregationLimitAlgorithm)
 {
-  staRecordAggregationAlgorithm = myaggregationAlgorithm;
+  staRecordaggregationLimitAlgorithm = myaggregationLimitAlgorithm;
 }
 
 void
@@ -1670,9 +1670,9 @@ STA_record::SetAmpduSize (uint32_t myAmpduSize)
 }
 
 void
-STA_record::SetmaxAmpduSizeWhenAggregationDisabled (uint32_t mymaxAmpduSizeWhenAggregationDisabled)
+STA_record::SetmaxAmpduSizeWhenAggregationLimited (uint32_t mymaxAmpduSizeWhenAggregationLimited)
 {
-  staRecordMaxAmpduSizeWhenAggregationDisabled = mymaxAmpduSizeWhenAggregationDisabled;
+  staRecordmaxAmpduSizeWhenAggregationLimited = mymaxAmpduSizeWhenAggregationLimited;
 }
 
 void
@@ -1788,8 +1788,8 @@ int main (int argc, char *argv[]) {
 
   double rateAPsWithAMPDUenabled = 1.0; // rate of APs with A-MPDU enabled at the beginning of the simulation
 
-  uint32_t aggregationAlgorithm = 1;  // Set this to 1 in order to make the central control algorithm run
-  uint32_t maxAmpduSizeWhenAggregationDisabled = 0;  // Only for TCP. Minimum size (to be used when aggregation is 'disabled')
+  uint32_t aggregationLimitAlgorithm = 1;  // Set this to 1 in order to make the central control algorithm run
+  uint32_t maxAmpduSizeWhenAggregationLimited = 0;  // Only for TCP. Minimum size (to be used when aggregation is 'limited')
 
   uint16_t topology = 1;    // 0: all the server applications are in a single server
                             // 1: each server application is in a node connected to the hub
@@ -1867,7 +1867,7 @@ int main (int argc, char *argv[]) {
   // General scenario topology parameters
   cmd.AddValue ("simulationTime", "Simulation time [s]", simulationTime);
   
-  cmd.AddValue ("timeMonitorDelay", "Time interval to monitor VoIP delay [s] (0 means no monitoring)", timeMonitorDelay);
+  cmd.AddValue ("timeMonitorDelay", "Time interval to monitor VoIP delay [s]. 0 (default) means no monitoring", timeMonitorDelay);
 
   cmd.AddValue ("numberVoIPupload", "Number of nodes running VoIP up", numberVoIPupload);
   cmd.AddValue ("numberVoIPdownload", "Number of nodes running VoIP down", numberVoIPdownload);
@@ -1889,10 +1889,19 @@ int main (int argc, char *argv[]) {
   cmd.AddValue ("topology", "Topology: '0' all server applications in a server; '1' all the servers connected to the hub (default); '2' all the servers behind a router", topology);
 
   // Aggregation parameters
+  // The central controller runs an algorithm that dynamically
+  // disables aggregation in an AP if a VoIP flow appears, and
+  // enables it when the VoIP user leaves. Therefore, VoIP users
+  // will always see a non-aggregating AP, whereas TCP users
+  // will receive non-aggregated frames in some moments
   cmd.AddValue ("rateAPsWithAMPDUenabled", "Initial rate of APs with AMPDU aggregation enabled", rateAPsWithAMPDUenabled);
-  cmd.AddValue ("aggregationAlgorithm", "Is the algorithm controlling AMPDU aggregation enabled?", aggregationAlgorithm);
+  cmd.AddValue ("aggregationLimitAlgorithm", "Is the algorithm controlling AMPDU aggregation enabled?", aggregationLimitAlgorithm);
   cmd.AddValue ("maxAmpduSize", "Maximum value of the AMPDU (bytes)", maxAmpduSize);
-  cmd.AddValue ("maxAmpduSizeWhenAggregationDisabled", "Max AMPDU size to use when aggregation is disabled", maxAmpduSizeWhenAggregationDisabled);
+  // The objective of '--maxAmpduSizeWhenAggregationLimited=8000' is the next:
+  // the algorithm is used but, instead of deactivating the aggregation,
+  // a maximum size of e.g. 8 kB is set when a VoIP flow is present
+  // in an AP, in order to limit the added delay.
+  cmd.AddValue ("maxAmpduSizeWhenAggregationLimited", "Max AMPDU size to use when aggregation is limited", maxAmpduSizeWhenAggregationLimited);
 
   // TCP parameters
   cmd.AddValue ("TcpPayloadSize", "Payload size in bytes", TcpPayloadSize);
@@ -1968,8 +1977,8 @@ int main (int argc, char *argv[]) {
     }
   }
 
-  if ( maxAmpduSizeWhenAggregationDisabled > maxAmpduSize ) {
-      std::cout << "INPUT PARAMETER ERROR: The Max AMPDU size to use when aggregation is disabled (" << maxAmpduSizeWhenAggregationDisabled << ") has to be smaller or equal than the Max AMPDU size (" << maxAmpduSize << "). Stopping the simulation." << '\n';      
+  if ( maxAmpduSizeWhenAggregationLimited > maxAmpduSize ) {
+      std::cout << "INPUT PARAMETER ERROR: The Max AMPDU size to use when aggregation is limited (" << maxAmpduSizeWhenAggregationLimited << ") has to be smaller or equal than the Max AMPDU size (" << maxAmpduSize << "). Stopping the simulation." << '\n';      
       return 0;        
   }
 
@@ -1990,7 +1999,7 @@ int main (int argc, char *argv[]) {
     }
   }
 
-  if ((aggregationAlgorithm == 1 ) && (rateAPsWithAMPDUenabled < 1.0 )) {
+  if ((aggregationLimitAlgorithm == 1 ) && (rateAPsWithAMPDUenabled < 1.0 )) {
     std::cout << "INPUT PARAMETER ERROR: The algorithm has to start with all the APs with A-MPDU enabled (--rateAPsWithAMPDUenabled=1.0). Stopping the simulation." << '\n';
     return 0;
   }
@@ -2068,9 +2077,9 @@ int main (int argc, char *argv[]) {
     std::cout << '\n';
     // Aggregation parameters    
     std::cout << "Initial rate of APs with AMPDU aggregation enabled: " << rateAPsWithAMPDUenabled << '\n';
-    std::cout << "Is the algorithm controlling AMPDU aggregation enabled?: " << aggregationAlgorithm << '\n';
+    std::cout << "Is the algorithm controlling AMPDU aggregation enabled?: " << aggregationLimitAlgorithm << '\n';
     std::cout << "Maximum value of the AMPDU size: " << maxAmpduSize << " bytes" << '\n';
-    std::cout << "Maximum value of the AMPDU size when aggregation is disabled: " << maxAmpduSizeWhenAggregationDisabled << " bytes" << '\n';
+    std::cout << "Maximum value of the AMPDU size when aggregation is limited: " << maxAmpduSizeWhenAggregationLimited << " bytes" << '\n';
     std::cout << '\n';
     // TCP parameters
     std::cout << "TCP Payload size: " << TcpPayloadSize << " bytes"  << '\n';
@@ -2709,7 +2718,7 @@ int main (int argc, char *argv[]) {
                         "VO_MaxAmpduSize", UintegerValue (0));    //Disable A-MPDU
 
       if ( verboseLevel > 0 )
-        std::cout << "AP     #" << i << "\tAMPDU disabled" << '\n';
+        std::cout << "AP     #" << i << "\tAMPDU limited" << '\n';
     }
 
 /*  Other options:
@@ -2777,7 +2786,7 @@ int main (int argc, char *argv[]) {
     if (verboseLevel > 3 )
       std::cout << "AP with MAC " << myaddress << " added to the list of APs" << '\n';
 
-    if (aggregationAlgorithm == 0) {
+    if (aggregationLimitAlgorithm == 0) {
       (*index)->SetApRecord (k, myaddress, 0); // The algorithm is not activated, so I put a 0     
     } else {
       (*index)->SetApRecord (k, myaddress, maxAmpduSize); // The algorithm has to start with all the APs with A-MPDU enabled
@@ -2802,7 +2811,7 @@ int main (int argc, char *argv[]) {
     Ipv4InterfaceContainer staInterface;
 
     // If the aggregation algorithm is NOT enabled, all the STAs aggregate
-    if ( aggregationAlgorithm == 0 ) {
+    if ( aggregationLimitAlgorithm == 0 ) {
       wifiMac.SetType ( "ns3::StaWifiMac",
                         "Ssid", SsidValue (stassid));
       
@@ -2815,7 +2824,7 @@ int main (int argc, char *argv[]) {
         wifiMac.SetType ( "ns3::StaWifiMac",
                           "Ssid", SsidValue (stassid),
                           "QosSupported", BooleanValue (true),
-                          "ActiveProbing", BooleanValue (true),
+                          //"ActiveProbing", BooleanValue (true), // If you set this, STAs will not connect when aggregation algorithm is running
                           "BE_MaxAmpduSize", UintegerValue (0),
                           "BK_MaxAmpduSize", UintegerValue (0),
                           "VI_MaxAmpduSize", UintegerValue (0),
@@ -2825,7 +2834,7 @@ int main (int argc, char *argv[]) {
         wifiMac.SetType ( "ns3::StaWifiMac",
                           "Ssid", SsidValue (stassid),
                           "QosSupported", BooleanValue (true),
-                          "ActiveProbing", BooleanValue (true),
+                          //"ActiveProbing", BooleanValue (true), // If you set this, STAs will not connect when aggregation algorithm is running
                           "BE_MaxAmpduSize", UintegerValue (maxAmpduSize),
                           "BK_MaxAmpduSize", UintegerValue (maxAmpduSize),
                           "VI_MaxAmpduSize", UintegerValue (maxAmpduSize),
@@ -3255,9 +3264,9 @@ int main (int argc, char *argv[]) {
     // Establish the rest of the private variables of the STA record
     m_STArecord->SetnumChannels (numChannels);
     m_STArecord->Setversion80211 (version80211);
-    m_STArecord->SetaggregationAlgorithm (aggregationAlgorithm);
+    m_STArecord->SetaggregationLimitAlgorithm (aggregationLimitAlgorithm);
     m_STArecord->SetAmpduSize (maxAmpduSize);
-    m_STArecord->SetmaxAmpduSizeWhenAggregationDisabled (maxAmpduSizeWhenAggregationDisabled);
+    m_STArecord->SetmaxAmpduSizeWhenAggregationLimited (maxAmpduSizeWhenAggregationLimited);
     m_STArecord->SetWifiModel (wifiModel);
 
     l++;
@@ -3268,7 +3277,7 @@ int main (int argc, char *argv[]) {
     std::string strSTA = STA.str();
 
     // Check if we are using the algoritm for deactivating / activating aggregation
-    //if ( aggregationAlgorithm == 1) {
+    //if ( aggregationLimitAlgorithm == 1) {
 
       // This makes a callback every time a STA gets associated to an AP
       // see trace sources in https://www.nsnam.org/doxygen/classns3_1_1_sta_wifi_mac.html#details
@@ -3849,7 +3858,7 @@ int main (int argc, char *argv[]) {
 // FIXME *** end of the trial ***
 
 
-  if ( (verboseLevel > 0) && (aggregationAlgorithm == 1) ) {
+  if ( (verboseLevel > 0) && (aggregationLimitAlgorithm == 1) ) {
     Simulator::Schedule(Seconds(0.0), &List_STA_record);
     Simulator::Schedule(Seconds(0.0), &ListAPs, verboseLevel);
   }
