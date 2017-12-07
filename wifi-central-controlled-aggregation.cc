@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v156
+ * v157
  * Developed and tested for ns-3.26, although the simulation crashes in some cases. One example:
  *    - more than one AP
  *    - set the RtsCtsThreshold below 48000
@@ -235,91 +235,12 @@ using namespace ns3;
                               // http://chimera.labs.oreilly.com/books/1234000001739/ch03.html
                               // https://www.nsnam.org/doxygen/classns3_1_1_sta_wifi_mac.html
 
+#define STEPADJUSTAMPDU 1000  // We will update AMPDU up and down using this step size
+
 #define INITIALPORT 1000      // The value of the port for the first communication (probably VoIP upload)
 
 // Define a log component
 NS_LOG_COMPONENT_DEFINE ("SimpleMpduAggregation");
-
-
-/********* FUNCTIONS ************/
-FlowMonitorHelper flowmon;  // FIXME avoid this global variable
-
-
-// Struct for storing the statistics of the VoIP flows
-struct VoIPStatistics {
-  double acumDelay;
-  double acumJitter;
-  uint32_t acumNumPackets;
-};
-
-
-// Obtain periodically the statistics of the VoIP flows, using Flowmonitor
-void obtainStats (Ptr<FlowMonitor> monitor/*, FlowMonitorHelper flowmon*/, 
-                  VoIPStatistics* myVoIPStatistics,
-                  uint16_t numberVoIPuploadFlows,
-                  uint16_t numberVoIPdownloadFlows,
-                  uint32_t verboseLevel,
-                  double timeInterval)  //Interval between monitoring moments
-{
-  monitor->CheckForLostPackets ();
-  Ptr<Ipv4FlowClassifier> classifier = DynamicCast<Ipv4FlowClassifier> (flowmon.GetClassifier ());
-
-  // for each flow
-  std::map<FlowId, FlowMonitor::FlowStats> stats = monitor->GetFlowStats ();
-  uint16_t k = 0;
-  for (std::map<FlowId, FlowMonitor::FlowStats>::const_iterator i = stats.begin (); i != stats.end (); ++i)
-  {
-    Ipv4FlowClassifier::FiveTuple t = classifier->FindFlow (i->first);
-
-    // VoIP flows
-    if (  (t.destinationPort >= INITIALPORT ) && 
-          (t.destinationPort < INITIALPORT + numberVoIPuploadFlows + numberVoIPdownloadFlows )) {
-
-      // obtain the average latency and jitter only in the last interval
-      double averageLatency = (i->second.delaySum.GetSeconds() - myVoIPStatistics[k].acumDelay) / 
-                              (i->second.rxPackets - myVoIPStatistics[k].acumNumPackets);
-
-      double averageJitter = (i->second.jitterSum.GetSeconds() - myVoIPStatistics[k].acumJitter) / 
-                              (i->second.rxPackets - myVoIPStatistics[k].acumNumPackets);
-
-      if (verboseLevel > 0) {
-
-        std::cout << Simulator::Now();
-        std::cout << "\t[obtainStats] flow " << i->first;
-        if (t.destinationPort < INITIALPORT + numberVoIPuploadFlows )
-          std::cout << "\tVoIP upload\n";
-        else
-          std::cout << "\tVoIP download\n";
-        if (verboseLevel > 1) {
-          std::cout << "\t\t\tAcum delay at the beginning of the period: "<< myVoIPStatistics[k].acumDelay << "\n";
-          std::cout << "\t\t\tAcum delay at the end of the period: " << i->second.delaySum.GetSeconds() << "\n";
-        }
-        std::cout << "\t\t\tNumber of packets this period: " << i->second.rxPackets << "\n";
-        std::cout << "\t\t\tAverage delay this period: " << averageLatency << "\n";
-        std::cout << "\t\t\tAverage jitter this period: " << averageJitter << "\n";
-      }
-
-      myVoIPStatistics[k].acumDelay = i->second.delaySum.GetSeconds();
-      myVoIPStatistics[k].acumJitter = i->second.jitterSum.GetSeconds();
-      myVoIPStatistics[k].acumNumPackets = i->second.rxPackets;
-    }  
-    k ++;
-  }
-
-  // Reschedule the calculation
-  Simulator::Schedule(  Seconds(timeInterval),
-                        &obtainStats,
-                        monitor/*, flowmon*/, 
-                        myVoIPStatistics,
-                        numberVoIPuploadFlows,
-                        numberVoIPdownloadFlows,
-                        verboseLevel,
-                        timeInterval);
-
-  /*monitor->StopRightNow();
-    monitor->StartRightNow();*/
-
-}
 
 
 // Change the frequency of a STA
@@ -1754,6 +1675,158 @@ GetstaRecordMaxSizeAmpdu (uint16_t thisSTAid, uint32_t myverbose)
 
 
 
+/********* FUNCTIONS ************/
+FlowMonitorHelper flowmon;  // FIXME avoid this global variable
+
+
+// Struct for storing the statistics of the VoIP flows
+struct VoIPStatistics {
+  double acumDelay;
+  double acumJitter;
+  uint32_t acumNumPackets;
+};
+
+// Adjust the size of the AMPDU
+void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
+                  uint32_t verboseLevel,
+                  double timeInterval)
+{
+
+  for (AP_recordVector::const_iterator index = AP_vector.begin (); index != AP_vector.end (); index++) {
+    std::cout << Simulator::Now ()
+              << "[adjustAMPDU]"
+              << "   \t\tAP #" << (*index)->GetApid() 
+              << " with MAC " << (*index)->GetMac() 
+              << " Max size AMPDU " << (*index)->GetMaxSizeAmpdu() 
+              << " Channel " << uint16_t((*index)->GetWirelessChannel())
+              << std::endl;
+  }
+
+  //GetAP_MaxSizeAmpdu ( GetAnAP_Id(myaddress), staRecordVerboseLevel );
+
+  // I modify the A-MPDU of this AP
+  // =  + STEPADJUSTAMPDU;
+  //ModifyAmpdu ( GetAnAP_Id(myaddress), staRecordmaxAmpduSizeWhenAggregationLimited, 1 );
+/*
+  // If there is no remaining STA running VoIP associated
+  if ( anyStaWithVoIPAssociated == false ) {
+    // enable aggregation in the AP
+    // Modify the A-MPDU of this AP
+    ModifyAmpdu (GetAnAP_Id(myaddress), staRecordMaxAmpduSize, 1);
+    Modify_AP_Record (GetAnAP_Id(myaddress), myaddress, staRecordMaxAmpduSize);
+
+    if (staRecordVerboseLevel > 0)
+      std::cout << Simulator::Now () 
+                << "\t[adjustAMPDU]\tAggregation in AP #" << GetAnAP_Id(myaddress) 
+                << "\twith MAC: " << myaddress 
+                << "\tset to " << staRecordMaxAmpduSize 
+                << "\t(enabled)" << std::endl;
+
+          // enable aggregation in all the STAs associated to that AP
+          for (STA_recordVector::const_iterator index = assoc_vector.begin (); index != assoc_vector.end (); index++) {
+
+            // if the STA is associated
+            if ((*index)->GetAssoc()) {
+
+              // if the STA is associated to this AP
+              if ( (*index)->GetMac() == AP_MAC_address ) {
+
+                // if the STA is not running VoIP. NOT NEEDED. IF I AM HERE IT MEANS THAT ALL THE STAs ARE TCP
+                //if ((*index)->Gettypeofapplication () > 2) {
+
+                  ModifyAmpdu ((*index)->GetStaid(), staRecordMaxAmpduSize, 1);  // modify the AMPDU in the STA node
+                  (*index)->SetMaxSizeAmpdu(staRecordMaxAmpduSize);// update the data in the STA_record structure
+
+                  if (staRecordVerboseLevel > 0)  
+                    std::cout << Simulator::Now () 
+                              << "\t[adjustAMPDU] Aggregation in STA #" << (*index)->GetStaid() 
+                              << "\tassociated to AP #" << GetAnAP_Id(myaddress) 
+                              << "\twith MAC " << (*index)->GetMac() 
+                              << "\tset to " << staRecordMaxAmpduSize 
+                              << "\t(enabled)" << std::endl;
+                //}
+              }
+            }
+          }
+*/
+
+
+
+
+
+  // Reschedule the calculation
+  Simulator::Schedule(  Seconds(timeInterval),
+                        &adjustAMPDU,
+                        myVoIPStatistics,
+                        verboseLevel,
+                        timeInterval);
+}
+
+// Obtain periodically the statistics of the VoIP flows, using Flowmonitor
+void obtainStats (Ptr<FlowMonitor> monitor/*, FlowMonitorHelper flowmon*/, 
+                  VoIPStatistics* myVoIPStatistics,
+                  uint16_t numberVoIPuploadFlows,
+                  uint16_t numberVoIPdownloadFlows,
+                  uint32_t verboseLevel,
+                  double timeInterval)  //Interval between monitoring moments
+{
+  monitor->CheckForLostPackets ();
+  Ptr<Ipv4FlowClassifier> classifier = DynamicCast<Ipv4FlowClassifier> (flowmon.GetClassifier ());
+
+  // for each flow
+  std::map<FlowId, FlowMonitor::FlowStats> stats = monitor->GetFlowStats ();
+  uint16_t k = 0;
+  for (std::map<FlowId, FlowMonitor::FlowStats>::const_iterator i = stats.begin (); i != stats.end (); ++i)
+  {
+    Ipv4FlowClassifier::FiveTuple t = classifier->FindFlow (i->first);
+
+    // VoIP flows
+    if (  (t.destinationPort >= INITIALPORT ) && 
+          (t.destinationPort < INITIALPORT + numberVoIPuploadFlows + numberVoIPdownloadFlows )) {
+
+      // obtain the average latency and jitter only in the last interval
+      double averageLatency = (i->second.delaySum.GetSeconds() - myVoIPStatistics[k].acumDelay) / 
+                              (i->second.rxPackets - myVoIPStatistics[k].acumNumPackets);
+
+      double averageJitter = (i->second.jitterSum.GetSeconds() - myVoIPStatistics[k].acumJitter) / 
+                              (i->second.rxPackets - myVoIPStatistics[k].acumNumPackets);
+
+      if (verboseLevel > 0) {
+
+        std::cout << Simulator::Now();
+        std::cout << "\t[obtainStats] flow " << i->first;
+        if (t.destinationPort < INITIALPORT + numberVoIPuploadFlows )
+          std::cout << "\tVoIP upload\n";
+        else
+          std::cout << "\tVoIP download\n";
+        if (verboseLevel > 1) {
+          std::cout << "\t\t\tAcum delay at the beginning of the period: "<< myVoIPStatistics[k].acumDelay << "\n";
+          std::cout << "\t\t\tAcum delay at the end of the period: " << i->second.delaySum.GetSeconds() << "\n";
+        }
+        std::cout << "\t\t\tNumber of packets this period: " << i->second.rxPackets << "\n";
+        std::cout << "\t\t\tAverage delay this period: " << averageLatency << "\n";
+        std::cout << "\t\t\tAverage jitter this period: " << averageJitter << "\n";
+      }
+
+      myVoIPStatistics[k].acumDelay = i->second.delaySum.GetSeconds();
+      myVoIPStatistics[k].acumJitter = i->second.jitterSum.GetSeconds();
+      myVoIPStatistics[k].acumNumPackets = i->second.rxPackets;
+    }  
+    k ++;
+  }
+
+  // Reschedule the calculation
+  Simulator::Schedule(  Seconds(timeInterval),
+                        &obtainStats,
+                        monitor/*, flowmon*/, 
+                        myVoIPStatistics,
+                        numberVoIPuploadFlows,
+                        numberVoIPdownloadFlows,
+                        verboseLevel,
+                        timeInterval);
+}
+
+
 
 int main (int argc, char *argv[]) {
 
@@ -1960,7 +2033,7 @@ int main (int argc, char *argv[]) {
 
   uint8_t availableChannels160MHz[2] = {50, 114};
 
-  uint32_t i, j;  //FIXME: remove these variables and declare them when needed
+  uint32_t j;  //FIXME: remove this variable and declare it when needed
 
 
   // One server interacts with each STA
@@ -1970,109 +2043,113 @@ int main (int argc, char *argv[]) {
     number_of_Servers = number_of_STAs;
   }
 
+  BooleanValue error = 0;
 
   // Test some conditions before starting
   if (version80211 == 0) {
     if ( maxAmpduSize > MAXSIZE80211n ) {
       std::cout << "INPUT PARAMETER ERROR: Too high AMPDU size. Limit: " << MAXSIZE80211n <<". Stopping the simulation." << '\n';
-      return 0;      
+      error = 1;      
     }
   } else {
     if ( maxAmpduSize > MAXSIZE80211ac ) {
       std::cout << "INPUT PARAMETER ERROR: Too high AMPDU size. Limit: " << MAXSIZE80211ac <<". Stopping the simulation." << '\n';
-      return 0;  
+      error = 1;  
     }
   }
 
   if ((aggregationLimitAlgorithm == 1 ) && (rateAPsWithAMPDUenabled < 1.0 )) {
     std::cout << "INPUT PARAMETER ERROR: The algorithm has to start with all the APs with A-MPDU enabled (--rateAPsWithAMPDUenabled=1.0). Stopping the simulation." << '\n';
-    return 0;
+    error = 1;
   }
 
   if ( maxAmpduSizeWhenAggregationLimited > maxAmpduSize ) {
     std::cout << "INPUT PARAMETER ERROR: The Max AMPDU size to use when aggregation is limited (" << maxAmpduSizeWhenAggregationLimited << ") has to be smaller or equal than the Max AMPDU size (" << maxAmpduSize << "). Stopping the simulation." << '\n';      
-    return 0;        
+    error = 1;        
   }
 
   if ((maxAmpduSizeWhenAggregationLimited > 0 ) && ( aggregationLimitAlgorithm == 0 ) ) {
     std::cout << "INPUT PARAMETER ERROR: You cannot set 'maxAmpduSizeWhenAggregationLimited' if 'aggregationLimitAlgorithm' is not active. Stopping the simulation." << '\n';      
-    return 0;        
+    error = 1;        
   }
 
   if ((aggregationLimitAlgorithm == 1 ) && (aggregationDynamicAlgorithm == 1 )) {
     std::cout << "INPUT PARAMETER ERROR: Only one algorithm for modifying AMPDU can be active ('aggregationLimitAlgorithm' and 'aggregationDynamicAlgorithm'). Stopping the simulation." << '\n';      
-    return 0;
+    error = 1;
   }
 
   if ((aggregationDynamicAlgorithm == 1 ) && (rateAPsWithAMPDUenabled < 1.0 )) {
     std::cout << "INPUT PARAMETER ERROR: The algorithm has to start with all the APs with A-MPDU enabled (--rateAPsWithAMPDUenabled=1.0). Stopping the simulation." << '\n';
-    return 0;
+    error = 1;
   }
 
   if ((aggregationDynamicAlgorithm == 1 ) && (timeMonitorDelay == 0)) {
     std::cout << "INPUT PARAMETER ERROR: The algorithm for dynamic AMPDU adaptation (--aggregationDynamicAlgorithm=1) requires delay monitoring ('timeMonitorDelay' should not be 0.0). Stopping the simulation." << '\n';
-    return 0;
+    error = 1;
   }
 
   if ((aggregationDynamicAlgorithm == 1 ) && (latencyBudget == 0.0)) {
     std::cout << "INPUT PARAMETER ERROR: The algorithm for dynamic AMPDU adaptation (--aggregationDynamicAlgorithm=1) requires a latency budget ('latencyBudget' should not be 0.0). Stopping the simulation." << '\n';
-    return 0;
+    error = 1;
   }
 
   if ((aggregationDynamicAlgorithm == 1 ) && (numberVoIPupload + numberVoIPdownload == 0)) {
     std::cout << "INPUT PARAMETER ERROR: The algorithm for dynamic AMPDU adaptation (--aggregationDynamicAlgorithm=1) cannot work if there are no VoIP applications. Stopping the simulation." << '\n';
-    return 0;
+    error = 1;
   }
 
   if ((rateModel != "Constant") && (rateModel != "Ideal") && (rateModel != "Minstrel")) {
     std::cout << "INPUT PARAMETER ERROR: The wifi rate model MUST be 'Constant', 'Ideal' or 'Minstrel'. Stopping the simulation." << '\n';
-    return 0;
+    error = 1;
   }
 
   if (number_of_APs % number_of_APs_per_row != 0) {
     std::cout << "INPUT PARAMETER ERROR: The number of APs MUST be a multiple of the number of APs per row. Stopping the simulation." << '\n';
-    return 0;
+    error = 1;
   }
 
   if ((nodeMobility ==0) || (nodeMobility == 1)) {
     if (number_of_APs % number_of_APs_per_row != 0) {
       std::cout << "INPUT PARAMETER ERROR: With static and linear mobility, the number of STAs MUST be a multiple of the number of STAs per row. Stopping the simulation." << '\n';
-      return 0;
+      error = 1;
     }
   }
 
   // check if the channel width is correct
   if ((channelWidth != 20) && (channelWidth != 40) && (channelWidth != 80) && (channelWidth != 160)) {
     std::cout << "INPUT PARAMETER ERROR: The witdth of the channels has to be 20, 40, 80 or 160. Stopping the simulation." << '\n';
-    return 0;    
+    error = 1;    
   }
 
   if ((channelWidth == 20) && (numChannels > 34) ) {
     std::cout << "INPUT PARAMETER ERROR: The maximum number of 20 MHz channels is 16. Stopping the simulation." << '\n';
-    return 0;    
+    error = 1;    
   }
 
   if ((channelWidth == 40) && (numChannels > 12) ) {
     std::cout << "INPUT PARAMETER ERROR: The maximum number of 40 MHz channels is 12. Stopping the simulation." << '\n';
-    return 0;    
+    error = 1;    
   }
 
   if ((channelWidth == 80) && (numChannels > 6) ) {
     std::cout << "INPUT PARAMETER ERROR: The maximum number of 80 MHz channels is 6. Stopping the simulation." << '\n';
-    return 0;    
+    error = 1;    
   }
 
   if ((channelWidth == 160) && (numChannels > 2) ) {
     std::cout << "INPUT PARAMETER ERROR: The maximum number of 160 MHz channels is 12. Stopping the simulation." << '\n';
-    return 0;    
+    error = 1;    
   }
 
   // LogDistancePropagationLossModel does not work properly in 2.4 GHz
   if ((version80211 == 2 ) && (propagationLossModel == 0)) {
     std::cout << "INPUT PARAMETER ERROR: LogDistancePropagationLossModel does not work properly in 2.4 GHz. Stopping the simulation." << '\n';
-    return 0;      
+    error = 1;      
   }
 
+  if (error) return 0;
+
+  
   uint8_t availableChannels[numChannels];
   for (uint32_t i = 0; i < numChannels; ++i) {
     if (channelWidth == 20)
@@ -2504,7 +2581,7 @@ int main (int argc, char *argv[]) {
 
   // Periodically report the positions of all the STAs
   if (verboseLevel > 2) {
-    for ( j = 0; j < number_of_STAs; ++j) {
+    for (uint32_t j = 0; j < number_of_STAs; ++j) {
       Simulator::Schedule (Seconds (initial_time_interval), &ReportPosition, staNodes.Get(j), number_of_APs + number_of_Servers + j , 1, verboseLevel, apNodes);
     }
 
@@ -2513,11 +2590,7 @@ int main (int argc, char *argv[]) {
     Config::Connect ( "/NodeList/*/$ns3::MobilityModel/CourseChange", MakeCallback (&CourseChange));
   }
 
-  // Add an empty record per AP
-  for (uint16_t i = 0; i < number_of_APs; i++ ){
-    AP_record *m_AP_record = new AP_record;
-    AP_vector.push_back(m_AP_record);
-  }
+
 
 
   /******** create the channels (wifi, csma and point to point) *********/
@@ -2711,13 +2784,18 @@ int main (int argc, char *argv[]) {
   }
 
 
+
   // Create the MAC helper
   // https://www.nsnam.org/doxygen/classns3_1_1_wifi_mac_helper.html
   WifiMacHelper wifiMac;
 
 
   // connect the APs to the wifi
-  for ( i = 0 ; i < number_of_APs ; ++i ) {
+  for (uint32_t i = 0 ; i < number_of_APs ; ++i ) {
+
+    // Create an empty record per AP
+    AP_record *m_AP_record = new AP_record;
+    AP_vector.push_back(m_AP_record);
 
     // I use an auxiliary device container and an auxiliary interface container
     NetDeviceContainer apWiFiDev;
@@ -2727,10 +2805,12 @@ int main (int argc, char *argv[]) {
     oss << "wifi-default-" << i; // Each AP will have a different SSID
     Ssid apssid = Ssid (oss.str ());
 
-    // setup the APs. Install one wifiMac or another depending on a random variable
+    // setup the APs. Modify the maxAmpduSize depending on a random variable
     Ptr<UniformRandomVariable> uv = CreateObject<UniformRandomVariable> ();
     
-    if ( uv->GetValue () < rateAPsWithAMPDUenabled ) {
+    double random = uv->GetValue ();
+
+    if ( random < rateAPsWithAMPDUenabled ) {
       // Enable AMPDU
       wifiMac.SetType ( "ns3::ApWifiMac",
                         "Ssid", SsidValue (apssid),
@@ -2745,8 +2825,7 @@ int main (int argc, char *argv[]) {
         std::cout << "AP     #" << i << "\tAMPDU enabled" << '\n';
 
     } else {
-      // Disable AMPDU
-      // - don't use aggregation (both A-MPDU and A-MSDU are disabled);
+      // Disable AMPDU: don't use aggregation (both A-MPDU and A-MSDU are disabled);
       wifiMac.SetType ( "ns3::ApWifiMac",
                         "Ssid", SsidValue (apssid),
                         "QosSupported", BooleanValue (true),
@@ -2805,36 +2884,27 @@ int main (int argc, char *argv[]) {
       std::cout << "        " << "\tWi-Fi channel: " << uint32_t(ChannelNoForThisAP) << '\n'; // convert to uint32_t in order to print it
     }
 
-    // save everything in containers (add a line to the vector of containers, including the new AP device and interface)
-    apWiFiDevices.push_back (apWiFiDev);
-  }
-
-
-  uint32_t k = 0;
-  // this creates a record with the IDs and the MACs of the APs
-  for (AP_recordVector::const_iterator index = AP_vector.begin (); index != AP_vector.end (); index++) {
-
     // auxiliar string
     std::ostringstream auxString;
 
     // create a string with the MAC
-    auxString << apWiFiDevices[k].Get(0)->GetAddress();
+    auxString << apWiFiDev.Get(0)->GetAddress();
 
     std::string myaddress = auxString.str();
 
-    if (verboseLevel > 3 )
-      std::cout << "AP with MAC " << myaddress << " added to the list of APs" << '\n';
-
-    if (aggregationLimitAlgorithm == 0) {
-      (*index)->SetApRecord (k, myaddress, 0); // The algorithm is not activated, so I put a 0     
+    // update the AP record with the correct value
+    if ( random < rateAPsWithAMPDUenabled ) {
+      AP_vector[i]->SetApRecord (i, myaddress, maxAmpduSize);
     } else {
-      (*index)->SetApRecord (k, myaddress, maxAmpduSize); // The algorithm has to start with all the APs with A-MPDU enabled
+      AP_vector[i]->SetApRecord (i, myaddress, 0);
     }
+    if (verboseLevel > 3 )
+      std::cout << "AP with MAC " << myaddress << " added to the list of APs. AMPDU size " << maxAmpduSize << " bytes" << '\n';
 
-    //(*index)->SetMaxSizeAmpdu (0); // Not to be done here
-
-    k++;
+    // save everything in containers (add a line to the vector of containers, including the new AP device and interface)
+    apWiFiDevices.push_back (apWiFiDev);
   }
+
 
 
   // Connect the STAs to the wifi
@@ -2849,8 +2919,8 @@ int main (int argc, char *argv[]) {
     NetDeviceContainer staDev;
     Ipv4InterfaceContainer staInterface;
 
-    // If the aggregation algorithm is NOT enabled, all the STAs aggregate
-    if ( aggregationLimitAlgorithm == 0 ) {
+    // If none of the aggregation algorithms is enabled, all the STAs aggregate
+    if ((aggregationLimitAlgorithm == 0) && (aggregationDynamicAlgorithm == 0)) {
       wifiMac.SetType ( "ns3::StaWifiMac",
                         "Ssid", SsidValue (stassid));
       
@@ -3849,8 +3919,10 @@ int main (int argc, char *argv[]) {
   }
 
 
-  // Schedule a periodic obtaining of statistics
-  if (timeMonitorDelay > 0.0)
+  // Algorithm for dynamically adjusting aggregation
+  if (aggregationDynamicAlgorithm ==1) {
+
+    // Schedule a periodic obtaining of statistics    
     Simulator::Schedule(  Seconds(initial_time_interval),
                           &obtainStats,
                           monitor
@@ -3860,6 +3932,14 @@ int main (int argc, char *argv[]) {
                           numberVoIPdownload,
                           verboseLevel,
                           timeMonitorDelay);
+
+    // Modify the AMPDU of the APs where there are VoIP flows
+    Simulator::Schedule(  Seconds(initial_time_interval + 0.001),
+                          &adjustAMPDU,
+                          myVoIPStatistics,
+                          verboseLevel,
+                          timeMonitorDelay);
+  }
 
 
   // mobility trace
