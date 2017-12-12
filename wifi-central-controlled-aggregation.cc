@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v157
+ * v158
  * Developed and tested for ns-3.26, although the simulation crashes in some cases. One example:
  *    - more than one AP
  *    - set the RtsCtsThreshold below 48000
@@ -1618,6 +1618,7 @@ STA_record::GetStaid ()
 
 Mac48Address
 STA_record::GetMac ()
+// returns the MAC address of the AP where the STA is associated
 {
   return apMac;
 }
@@ -1684,29 +1685,106 @@ struct VoIPStatistics {
   double acumDelay;
   double acumJitter;
   uint32_t acumNumPackets;
+  double lastPeriodDelay;
+  double lastPeriodJitter;
+  uint32_t lastPeriodPackets;
 };
 
 // Adjust the size of the AMPDU
 void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
                   uint32_t verboseLevel,
-                  double timeInterval)
+                  double timeInterval,
+                  uint32_t numberofAPs,
+                  double latencyBudget,
+                  uint32_t maxAmpduSize)
 {
 
-  for (AP_recordVector::const_iterator index = AP_vector.begin (); index != AP_vector.end (); index++) {
-    std::cout << Simulator::Now ()
-              << "[adjustAMPDU]"
-              << "   \t\tAP #" << (*index)->GetApid() 
-              << " with MAC " << (*index)->GetMac() 
-              << " Max size AMPDU " << (*index)->GetMaxSizeAmpdu() 
-              << " Channel " << uint16_t((*index)->GetWirelessChannel())
-              << std::endl;
+  // For each AP, find the highest value of the delay of the associated STAs
+  for (AP_recordVector::const_iterator indexAP = AP_vector.begin (); indexAP != AP_vector.end (); indexAP++) {
+    if (verboseLevel > 0)
+      std::cout << Simulator::Now ()
+                << "\t[adjustAMPDU]"
+                << "   \tAP #" << (*indexAP)->GetApid() 
+                << " with MAC " << (*indexAP)->GetMac() 
+                << " Max size AMPDU " << (*indexAP)->GetMaxSizeAmpdu() 
+                << " Channel " << uint16_t((*indexAP)->GetWirelessChannel())
+                << std::endl;
+
+    // find all the STAs associated to that AP
+    for (STA_recordVector::const_iterator indexSTA = assoc_vector.begin (); indexSTA != assoc_vector.end (); indexSTA++) {
+
+      // if the STA is associated
+      if ((*indexSTA)->GetAssoc()) {
+
+        // if the STA is running VoIP (typeofapplication 1 or 2)
+        if ( ( (*indexSTA)->Gettypeofapplication () ==1) || ( (*indexSTA)->Gettypeofapplication () ==2) ) {
+
+          // auxiliar string
+          std::ostringstream auxString;
+          // create a string with the MAC
+          auxString << "02-06-" << (*indexSTA)->GetMac();
+          std::string myAPaddress = auxString.str();
+
+          // if the STA is associated to this AP
+          if ( (*indexAP)->GetMac() == myAPaddress ) {
+
+            if (verboseLevel > 0) {
+              std::cout << Simulator::Now () 
+                        << "\t[adjustAMPDU]"
+                        << "   \t\tSTA #" << (*indexSTA)->GetStaid() 
+                        //<< "\tassociated to AP #" << GetAnAP_Id(myAPaddress) 
+                        //<< "\twith MAC " << (*indexSTA)->GetMac()
+                        ;
+              if ((*indexSTA)->Gettypeofapplication () ==1)
+                std::cout << "\t VoIP upload";
+              else
+                std::cout << "\t VoIP download";
+
+              // the first STA is created after the last AP. Therefore, (*indexSTA)->GetStaid() - numberofAPs is 0 for the first VoIP STA
+              std::cout << "\tDelay: " << myVoIPStatistics[ (*indexSTA)->GetStaid() - numberofAPs ].lastPeriodDelay 
+                        //<< "\t (*indexSTA)->GetStaid()  - numberofAPs is " << (*indexSTA)->GetStaid() - numberofAPs
+                        << std::endl;
+
+              // check if the latency is above of the latency budget
+              if ( myVoIPStatistics[ (*indexSTA)->GetStaid() - numberofAPs ].lastPeriodDelay > latencyBudget ) {
+                // reduce the AMPDU of the AP
+                ModifyAmpdu ( GetAnAP_Id(myAPaddress), (*indexAP)->GetMaxSizeAmpdu() - STEPADJUSTAMPDU, 1 );
+                Modify_AP_Record (GetAnAP_Id(myAPaddress), myAPaddress, (*indexAP)->GetMaxSizeAmpdu() - STEPADJUSTAMPDU );
+
+                if (verboseLevel > 0)
+                  std::cout << Simulator::Now () 
+                            << "\t[adjustAMPDU]"
+                            << "\t[adjustAMPDU]\tAggregation in AP #" << GetAnAP_Id(myAPaddress) 
+                            << "\twith MAC: " << myAPaddress 
+                            << "\tset to " << (*indexAP)->GetMaxSizeAmpdu()
+                            << std::endl;
+              } else {
+                // increase the AMPDU of the AP
+                if ( (*indexAP)->GetMaxSizeAmpdu() < maxAmpduSize ) {
+                  ModifyAmpdu ( GetAnAP_Id(myAPaddress), (*indexAP)->GetMaxSizeAmpdu() + STEPADJUSTAMPDU, 1 );
+                  Modify_AP_Record (GetAnAP_Id(myAPaddress), myAPaddress, (*indexAP)->GetMaxSizeAmpdu() + STEPADJUSTAMPDU );
+
+                  if (verboseLevel > 0)
+                    std::cout << Simulator::Now () 
+                              << "\t[adjustAMPDU]"
+                              << "\t[adjustAMPDU]\tAggregation in AP #" << GetAnAP_Id(myAPaddress) 
+                              << "\twith MAC: " << myAPaddress 
+                              << "\tset to " << (*indexAP)->GetMaxSizeAmpdu()
+                              << std::endl;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
   }
 
   //GetAP_MaxSizeAmpdu ( GetAnAP_Id(myaddress), staRecordVerboseLevel );
 
   // I modify the A-MPDU of this AP
   // =  + STEPADJUSTAMPDU;
-  //ModifyAmpdu ( GetAnAP_Id(myaddress), staRecordmaxAmpduSizeWhenAggregationLimited, 1 );
+  //
 /*
   // If there is no remaining STA running VoIP associated
   if ( anyStaWithVoIPAssociated == false ) {
@@ -1722,44 +1800,17 @@ void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
                 << "\tset to " << staRecordMaxAmpduSize 
                 << "\t(enabled)" << std::endl;
 
-          // enable aggregation in all the STAs associated to that AP
-          for (STA_recordVector::const_iterator index = assoc_vector.begin (); index != assoc_vector.end (); index++) {
-
-            // if the STA is associated
-            if ((*index)->GetAssoc()) {
-
-              // if the STA is associated to this AP
-              if ( (*index)->GetMac() == AP_MAC_address ) {
-
-                // if the STA is not running VoIP. NOT NEEDED. IF I AM HERE IT MEANS THAT ALL THE STAs ARE TCP
-                //if ((*index)->Gettypeofapplication () > 2) {
-
-                  ModifyAmpdu ((*index)->GetStaid(), staRecordMaxAmpduSize, 1);  // modify the AMPDU in the STA node
-                  (*index)->SetMaxSizeAmpdu(staRecordMaxAmpduSize);// update the data in the STA_record structure
-
-                  if (staRecordVerboseLevel > 0)  
-                    std::cout << Simulator::Now () 
-                              << "\t[adjustAMPDU] Aggregation in STA #" << (*index)->GetStaid() 
-                              << "\tassociated to AP #" << GetAnAP_Id(myaddress) 
-                              << "\twith MAC " << (*index)->GetMac() 
-                              << "\tset to " << staRecordMaxAmpduSize 
-                              << "\t(enabled)" << std::endl;
-                //}
-              }
-            }
-          }
 */
-
-
-
-
 
   // Reschedule the calculation
   Simulator::Schedule(  Seconds(timeInterval),
                         &adjustAMPDU,
                         myVoIPStatistics,
                         verboseLevel,
-                        timeInterval);
+                        timeInterval,
+                        numberofAPs,
+                        latencyBudget,
+                        maxAmpduSize);
 }
 
 // Obtain periodically the statistics of the VoIP flows, using Flowmonitor
@@ -1785,11 +1836,11 @@ void obtainStats (Ptr<FlowMonitor> monitor/*, FlowMonitorHelper flowmon*/,
           (t.destinationPort < INITIALPORT + numberVoIPuploadFlows + numberVoIPdownloadFlows )) {
 
       // obtain the average latency and jitter only in the last interval
-      double averageLatency = (i->second.delaySum.GetSeconds() - myVoIPStatistics[k].acumDelay) / 
-                              (i->second.rxPackets - myVoIPStatistics[k].acumNumPackets);
+      uint32_t totalPackets = i->second.rxPackets - myVoIPStatistics[k].acumNumPackets;
 
-      double averageJitter = (i->second.jitterSum.GetSeconds() - myVoIPStatistics[k].acumJitter) / 
-                              (i->second.rxPackets - myVoIPStatistics[k].acumNumPackets);
+      double averageLatency = (i->second.delaySum.GetSeconds() - myVoIPStatistics[k].acumDelay) / totalPackets;
+
+      double averageJitter = (i->second.jitterSum.GetSeconds() - myVoIPStatistics[k].acumJitter) / totalPackets;
 
       if (verboseLevel > 0) {
 
@@ -1806,13 +1857,19 @@ void obtainStats (Ptr<FlowMonitor> monitor/*, FlowMonitorHelper flowmon*/,
         std::cout << "\t\t\tNumber of packets this period: " << i->second.rxPackets << "\n";
         std::cout << "\t\t\tAverage delay this period: " << averageLatency << "\n";
         std::cout << "\t\t\tAverage jitter this period: " << averageJitter << "\n";
+        //std::cout << "\tt\tk= " << k << "\n";
       }
 
+      // update the values of the statistics
       myVoIPStatistics[k].acumDelay = i->second.delaySum.GetSeconds();
       myVoIPStatistics[k].acumJitter = i->second.jitterSum.GetSeconds();
       myVoIPStatistics[k].acumNumPackets = i->second.rxPackets;
-    }  
-    k ++;
+      myVoIPStatistics[k].lastPeriodDelay = averageLatency;
+      myVoIPStatistics[k].lastPeriodJitter = averageJitter;
+      myVoIPStatistics[k].lastPeriodPackets = totalPackets;
+
+      k ++;
+    } 
   }
 
   // Reschedule the calculation
@@ -3938,7 +3995,10 @@ int main (int argc, char *argv[]) {
                           &adjustAMPDU,
                           myVoIPStatistics,
                           verboseLevel,
-                          timeMonitorDelay);
+                          timeMonitorDelay,
+                          number_of_APs,
+                          latencyBudget,
+                          maxAmpduSize);
   }
 
 
