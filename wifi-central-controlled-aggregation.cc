@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v158
+ * v159
  * Developed and tested for ns-3.26, although the simulation crashes in some cases. One example:
  *    - more than one AP
  *    - set the RtsCtsThreshold below 48000
@@ -237,7 +237,11 @@ using namespace ns3;
 
 #define STEPADJUSTAMPDU 1000  // We will update AMPDU up and down using this step size
 
+#define AGGRESSIVENESS 10     // Factor to decrease AMPDU down
+
 #define INITIALPORT 1000      // The value of the port for the first communication (probably VoIP upload)
+
+#define MTU 1500    // The value of the MTU of the packets
 
 // Define a log component
 NS_LOG_COMPONENT_DEFINE ("SimpleMpduAggregation");
@@ -686,7 +690,7 @@ CourseChange (std::string foo, Ptr<const MobilityModel> mobility)
 {
   Vector pos = mobility->GetPosition ();
   Vector vel = mobility->GetVelocity ();
-  std::cout << Simulator::Now () << "\t[CourseChange] MOBILITY CHANGE. model= " 
+  std::cout << Simulator::Now ().GetSeconds() << "\t[CourseChange] MOBILITY CHANGE. model= " 
             << mobility << ", POS: x=" << pos.x 
             << ", y=" << pos.y
             << ", z=" << pos.z 
@@ -940,11 +944,11 @@ void
 Modify_AP_Record (uint16_t thisId, std::string thisMac, uint32_t thisMaxSizeAmpdu) // FIXME: Can this be done just with Set_AP_Record?
 {
   for (AP_recordVector::const_iterator index = AP_vector.begin (); index != AP_vector.end (); index++) {
-    //std::cout << Simulator::Now () << " ********************** AP with ID " << (*index)->GetApid() << " has MAC: " << (*index)->GetMac() << " *****" << std::endl;
+    //std::cout << Simulator::Now ().GetSeconds() << " ********************** AP with ID " << (*index)->GetApid() << " has MAC: " << (*index)->GetMac() << " *****" << std::endl;
 
     if ( (*index)->GetMac () == thisMac ) {
       (*index)->SetApRecord (thisId, thisMac, thisMaxSizeAmpdu);
-      //std::cout << Simulator::Now () << "\t[GetAnAP_Id] AP #" << (*index)->GetApid() << " has MAC: " << (*index)->GetMac() << "" << std::endl;
+      //std::cout << Simulator::Now ().GetSeconds() << "\t[GetAnAP_Id] AP #" << (*index)->GetApid() << " has MAC: " << (*index)->GetMac() << "" << std::endl;
     }
   }
 }
@@ -954,14 +958,14 @@ GetAnAP_Id (std::string thisMac)
 // lists all the STAs associated to an AP, with the MAC of the AP
 {
   uint16_t APid = 0;
-  //std::cout << Simulator::Now () << " *** Number of STA associated: " << Get_STA_record_num() << " *****" << std::endl;
+  //std::cout << Simulator::Now ().GetSeconds() << " *** Number of STA associated: " << Get_STA_record_num() << " *****" << std::endl;
 
   for (AP_recordVector::const_iterator index = AP_vector.begin (); index != AP_vector.end (); index++) {
-  //std::cout << Simulator::Now () << " ********************** AP with ID " << (*index)->GetApid() << " has MAC: " << (*index)->GetMac() << " *****" << std::endl;
+  //std::cout << Simulator::Now ().GetSeconds() << " ********************** AP with ID " << (*index)->GetApid() << " has MAC: " << (*index)->GetMac() << " *****" << std::endl;
 
     if ( (*index)->GetMac () == thisMac ) {
       APid = (*index)->GetApid ();
-      //std::cout << Simulator::Now () << "\t[GetAnAP_Id] AP #" << (*index)->GetApid() << " has MAC: " << (*index)->GetMac() << "" << std::endl;
+      //std::cout << Simulator::Now ().GetSeconds() << "\t[GetAnAP_Id] AP #" << (*index)->GetApid() << " has MAC: " << (*index)->GetMac() << "" << std::endl;
     }
   }
   return APid;
@@ -972,14 +976,14 @@ GetAP_MaxSizeAmpdu (uint16_t thisAPid, uint32_t myverbose)
 // returns the max size of the Ampdu of an AP
 {
   uint32_t APMaxSizeAmpdu = 0;
-  //std::cout << Simulator::Now () << " *** Number of STA associated: " << Get_STA_record_num() << " *****" << std::endl;
+  //std::cout << Simulator::Now ().GetSeconds() << " *** Number of STA associated: " << Get_STA_record_num() << " *****" << std::endl;
 
   for (AP_recordVector::const_iterator index = AP_vector.begin (); index != AP_vector.end (); index++) {
 
     if ( (*index)->GetApid () == thisAPid ) {
       APMaxSizeAmpdu = (*index)->GetMaxSizeAmpdu ();
       if ( myverbose > 2 )
-        std::cout << Simulator::Now () 
+        std::cout << Simulator::Now ().GetSeconds() 
                   << "\t[GetAP_MaxSizeAmpdu] AP #" << (*index)->GetApid() 
                   << " has AMDPU: " << (*index)->GetMaxSizeAmpdu() 
                   << "" << std::endl;
@@ -993,14 +997,14 @@ GetAP_WirelessChannel (uint16_t thisAPid, uint32_t myverbose)
 // returns the wireless channel of an AP
 {
   uint8_t APWirelessChannel = 0;
-  //std::cout << Simulator::Now () << " *** Number of STA associated: " << Get_STA_record_num() << " *****" << std::endl;
+  //std::cout << Simulator::Now ().GetSeconds() << " *** Number of STA associated: " << Get_STA_record_num() << " *****" << std::endl;
 
   for (AP_recordVector::const_iterator index = AP_vector.begin (); index != AP_vector.end (); index++) {
 
     if ( (*index)->GetApid () == thisAPid ) {
       APWirelessChannel = (*index)->GetWirelessChannel();
       if ( myverbose > 2 )
-        std::cout << Simulator::Now () 
+        std::cout << Simulator::Now ().GetSeconds() 
                   << "\t[GetAP_WirelessChannel] AP #" << (*index)->GetApid() 
                   << " has channel: " << uint16_t((*index)->GetWirelessChannel())
                   << "" << std::endl;
@@ -1014,7 +1018,7 @@ CountAPs (uint32_t myverbose)
 // counts all the APs with their id, mac and current value of MaxAmpdu
 {
   if (myverbose > 2)
-    std::cout << "\n" << Simulator::Now () << "   \t[CountAPs] Report APs" << std::endl;
+    std::cout << "\n" << Simulator::Now ().GetSeconds() << "   \t[CountAPs] Report APs" << std::endl;
 
   uint32_t number = 0;
 
@@ -1028,10 +1032,10 @@ void
 ListAPs (uint32_t myverbose)
 // lists all the APs with their id, mac and current value of MaxAmpdu
 {
-  std::cout << "\n" << Simulator::Now () << "   \t[ListAPs] Report APs. Total " << CountAPs(myverbose) << " APs" << std::endl;
+  std::cout << "\n" << Simulator::Now ().GetSeconds() << "   \t[ListAPs] Report APs. Total " << CountAPs(myverbose) << " APs" << std::endl;
 
   for (AP_recordVector::const_iterator index = AP_vector.begin (); index != AP_vector.end (); index++) {
-    std::cout //<< Simulator::Now ()
+    std::cout //<< Simulator::Now ().GetSeconds()
               << "                  "
               << "   \t\tAP #" << (*index)->GetApid() 
               << " with MAC " << (*index)->GetMac() 
@@ -1127,7 +1131,7 @@ void
 List_STA_record ()
 // lists all the STAs, with the MAC of the AP if they are associated to it
 {
-  std::cout << "\n" << Simulator::Now () << "\t[List_STA_record] Report STAs. Total associated: " << Get_STA_record_num() << "" << std::endl;
+  std::cout << "\n" << Simulator::Now ().GetSeconds() << "\t[List_STA_record] Report STAs. Total associated: " << Get_STA_record_num() << "" << std::endl;
 
   for (STA_recordVector::const_iterator index = assoc_vector.begin (); index != assoc_vector.end (); index++) {
     if ((*index)->GetAssoc ()) {
@@ -1138,7 +1142,7 @@ List_STA_record ()
       auxString << "02-06-" << (*index)->GetMac();
       std::string myaddress = auxString.str();
 
-      std::cout //<< Simulator::Now () 
+      std::cout //<< Simulator::Now ().GetSeconds() 
                 << "\t\t\t\tSTA #" << (*index)->GetStaid() 
                 << "\tassociated to AP #" << GetAnAP_Id(myaddress) 
                 << "\twith MAC " << (*index)->GetMac() 
@@ -1146,7 +1150,7 @@ List_STA_record ()
                 << "\tValue of Max AMPDU " << (*index)->GetMaxSizeAmpdu()
                 << std::endl;
     } else {
-      std::cout //<< Simulator::Now () 
+      std::cout //<< Simulator::Now ().GetSeconds() 
                 << "\t\t\t\tSTA #" << (*index)->GetStaid()
                 << "\tnot associated to any AP \t\t\t" 
                 << "\ttype of application " << (*index)->Gettypeofapplication()
@@ -1180,7 +1184,7 @@ STA_record::SetAssoc (std::string context, Mac48Address AP_MAC_address)
   uint8_t apChannel = GetAP_WirelessChannel ( GetAnAP_Id(myaddress), staRecordVerboseLevel );
 
   if (staRecordVerboseLevel > 0)
-    std::cout << Simulator::Now () 
+    std::cout << Simulator::Now ().GetSeconds() 
               << "\t[SetAssoc] STA #" << staid 
               << "\twith AMPDU size " << staRecordMaxSizeAmpdu 
               << "\trunning application " << typeofapplication 
@@ -1208,12 +1212,12 @@ STA_record::SetAssoc (std::string context, Mac48Address AP_MAC_address)
         //for (AP_recordVector::const_iterator index = AP_vector.begin (); index != AP_vector.end (); index++) {
           //if ( (*index)->GetMac () == myaddress ) {
             Modify_AP_Record ( GetAnAP_Id(myaddress), myaddress, staRecordmaxAmpduSizeWhenAggregationLimited);
-            //std::cout << Simulator::Now () << "\t[GetAnAP_Id] AP #" << (*index)->GetApid() << " has MAC: " << (*index)->GetMac() << "" << std::endl;
+            //std::cout << Simulator::Now ().GetSeconds() << "\t[GetAnAP_Id] AP #" << (*index)->GetApid() << " has MAC: " << (*index)->GetMac() << "" << std::endl;
         //  }
         //}
 
         if (staRecordVerboseLevel > 0)
-          std::cout << Simulator::Now () 
+          std::cout << Simulator::Now ().GetSeconds() 
                     << "\t[SetAssoc] Aggregation in AP #" << GetAnAP_Id(myaddress) 
                     << "\twith MAC: " << myaddress 
                     << "\tset to " << staRecordmaxAmpduSizeWhenAggregationLimited 
@@ -1235,7 +1239,7 @@ STA_record::SetAssoc (std::string context, Mac48Address AP_MAC_address)
                 (*index)->SetMaxSizeAmpdu(staRecordmaxAmpduSizeWhenAggregationLimited);               // update the data in the STA_record structure
 
                 if (staRecordVerboseLevel > 0)
-                  std::cout << Simulator::Now () 
+                  std::cout << Simulator::Now ().GetSeconds() 
                             << "\t[SetAssoc] Aggregation in STA #" << (*index)->GetStaid() 
                             << ", associated to AP #" << GetAnAP_Id(myaddress) 
                             << "\twith MAC " << (*index)->GetMac() 
@@ -1258,7 +1262,7 @@ STA_record::SetAssoc (std::string context, Mac48Address AP_MAC_address)
         staRecordMaxSizeAmpdu = staRecordmaxAmpduSizeWhenAggregationLimited;        // update the data in the STA_record structure
 
         if (staRecordVerboseLevel > 0)
-          std::cout << Simulator::Now () 
+          std::cout << Simulator::Now ().GetSeconds() 
                     << "\t[SetAssoc] Aggregation in STA #" << staid 
                     << ", associated to AP #" << GetAnAP_Id(myaddress) 
                     << "\twith MAC " << apMac
@@ -1272,7 +1276,7 @@ STA_record::SetAssoc (std::string context, Mac48Address AP_MAC_address)
               (*index)->SetMaxSizeAmpdu(0);// update the data in the STA_record structure
 
               if (staRecordVerboseLevel > 0)
-                std::cout << Simulator::Now () 
+                std::cout << Simulator::Now ().GetSeconds() 
                           << "\t[SetAssoc] Aggregation in STA #" << (*index)->GetStaid() 
                           << ", associated to AP #" << GetAnAP_Id(myaddress) 
                           << "\twith MAC " << (*index)->GetMac() 
@@ -1289,7 +1293,7 @@ STA_record::SetAssoc (std::string context, Mac48Address AP_MAC_address)
         staRecordMaxSizeAmpdu = staRecordMaxAmpduSize;        // update the data in the STA_record structure
 
         if (staRecordVerboseLevel > 0)
-          std::cout << Simulator::Now () 
+          std::cout << Simulator::Now ().GetSeconds() 
                     << "\t[SetAssoc] Aggregation in STA #" << staid 
                     << ", associated to AP #" << GetAnAP_Id(myaddress) 
                     << "\twith MAC " << apMac
@@ -1302,7 +1306,7 @@ STA_record::SetAssoc (std::string context, Mac48Address AP_MAC_address)
               (*index)->SetMaxSizeAmpdu(maxAmpduSize);// update the data in the STA_record structure
 
               if (myverbose > 0)
-                std::cout << Simulator::Now () 
+                std::cout << Simulator::Now ().GetSeconds() 
                           << "\t[SetAssoc] Aggregation in STA #" << (*index)->GetStaid() 
                           << ", associated to AP #" << GetAnAP_Id(myaddress) 
                           << "\twith MAC " << (*index)->GetMac() 
@@ -1338,7 +1342,7 @@ STA_record::UnsetAssoc (std::string context, Mac48Address AP_MAC_address)
   uint8_t apChannel = GetAP_WirelessChannel ( GetAnAP_Id(myaddress), staRecordVerboseLevel );
 
   if (staRecordVerboseLevel > 0)
-    std::cout << Simulator::Now () 
+    std::cout << Simulator::Now ().GetSeconds() 
               << "\t[UnsetAssoc] STA #" << staid
               << "\twith AMPDU size " << staRecordMaxSizeAmpdu               
               << "\trunning application " << typeofapplication 
@@ -1358,7 +1362,7 @@ STA_record::UnsetAssoc (std::string context, Mac48Address AP_MAC_address)
       // check if the AP is not aggregating
       /*if ( GetAP_MaxSizeAmpdu ( GetAnAP_Id(myaddress), staRecordVerboseLevel ) == 0 ) {
         if (staRecordVerboseLevel > 0)
-          std::cout << Simulator::Now () 
+          std::cout << Simulator::Now ().GetSeconds() 
                     << "\t[UnsetAssoc] This AP is not aggregating" 
                     << std::endl;*/
 
@@ -1390,7 +1394,7 @@ STA_record::UnsetAssoc (std::string context, Mac48Address AP_MAC_address)
           Modify_AP_Record (GetAnAP_Id(myaddress), myaddress, staRecordMaxAmpduSize);
 
           if (staRecordVerboseLevel > 0)
-            std::cout << Simulator::Now () 
+            std::cout << Simulator::Now ().GetSeconds() 
                       << "\t[UnsetAssoc]\tAggregation in AP #" << GetAnAP_Id(myaddress) 
                       << "\twith MAC: " << myaddress 
                       << "\tset to " << staRecordMaxAmpduSize 
@@ -1412,7 +1416,7 @@ STA_record::UnsetAssoc (std::string context, Mac48Address AP_MAC_address)
                   (*index)->SetMaxSizeAmpdu(staRecordMaxAmpduSize);// update the data in the STA_record structure
 
                   if (staRecordVerboseLevel > 0)  
-                    std::cout << Simulator::Now () 
+                    std::cout << Simulator::Now ().GetSeconds() 
                               << "\t[UnsetAssoc] Aggregation in STA #" << (*index)->GetStaid() 
                               << "\tassociated to AP #" << GetAnAP_Id(myaddress) 
                               << "\twith MAC " << (*index)->GetMac() 
@@ -1426,7 +1430,7 @@ STA_record::UnsetAssoc (std::string context, Mac48Address AP_MAC_address)
         // there is still some VoIP STA associatedm so aggregation cannot be enabled
         } else {
           if (staRecordVerboseLevel > 0)
-            std::cout << Simulator::Now () 
+            std::cout << Simulator::Now ().GetSeconds() 
                       << "\t[UnsetAssoc] There is still at least a VoIP STA in this AP " << GetAnAP_Id(myaddress) 
                       << " so aggregation cannot be enabled" << std::endl;
         }
@@ -1443,7 +1447,7 @@ STA_record::UnsetAssoc (std::string context, Mac48Address AP_MAC_address)
         staRecordMaxSizeAmpdu = staRecordMaxAmpduSize;  // update the data in the STA_record structure
 
         if (staRecordVerboseLevel > 0)
-          std::cout << Simulator::Now () 
+          std::cout << Simulator::Now ().GetSeconds() 
                     << "\t[UnsetAssoc] Aggregation in STA #" << staid 
                     << ", de-associated from AP #" << GetAnAP_Id(myaddress) 
                     << "\twith MAC " << apMac
@@ -1464,7 +1468,7 @@ STA_record::UnsetAssoc (std::string context, Mac48Address AP_MAC_address)
             (*index)->SetMaxSizeAmpdu(maxAmpduSize);// update the data in the STA_record structure
 
             if (staRecordVerboseLevel > 0)
-              std::cout << Simulator::Now () 
+              std::cout << Simulator::Now ().GetSeconds() 
                         << "\t[UnsetAssoc] Aggregation in STA #" << (*index)->GetStaid() 
                         << ", de-associated from AP #" << GetAnAP_Id(myaddress) 
                         << "\twith MAC " << (*index)->GetMac() 
@@ -1519,7 +1523,7 @@ STA_record::UnsetAssoc (std::string context, Mac48Address AP_MAC_address)
         ChangeFrequencyLocal (thisDevice, newChannel, staRecordwifiModel, staRecordVerboseLevel);
 
         if (staRecordVerboseLevel > 0)
-          std::cout << Simulator::Now () 
+          std::cout << Simulator::Now ().GetSeconds() 
                     << "\t[UnsetAssoc] STA #" << staid 
                     << " de-associated from AP #" << GetAnAP_Id(myaddress) 
                     << ". Channel set to " << uint16_t (newChannel) 
@@ -1529,7 +1533,7 @@ STA_record::UnsetAssoc (std::string context, Mac48Address AP_MAC_address)
       //}
     } else { // numChannels == 1
       if (staRecordVerboseLevel > 0)
-        std::cout << Simulator::Now () 
+        std::cout << Simulator::Now ().GetSeconds() 
                   << "\t[UnsetAssoc] STA #" << staid 
                   << " de-associated from AP #" << GetAnAP_Id(myaddress) 
                   << "\tnot modified because numChannels=" << staRecordNumChannels 
@@ -1538,7 +1542,7 @@ STA_record::UnsetAssoc (std::string context, Mac48Address AP_MAC_address)
     }
 /*  } else { // wifiModel = 1
     if (staRecordVerboseLevel > 0)
-      std::cout << Simulator::Now () 
+      std::cout << Simulator::Now ().GetSeconds() 
                   << "\t[UnsetAssoc] STA #" << staid 
                   << " de-associated from AP #" << GetAnAP_Id(myaddress) 
                   << "\tnot modified because wifimodel=" << staRecordwifiModel
@@ -1656,15 +1660,15 @@ GetstaRecordMaxSizeAmpdu (uint16_t thisSTAid, uint32_t myverbose)
 // returns the max size of the Ampdu of an AP
 {
   uint32_t staRecordMaxSizeAmpdu = 0;
-  //std::cout << Simulator::Now () << " *** Number of STA associated: " << Get_STA_record_num() << " *****" << std::endl;
+  //std::cout << Simulator::Now ().GetSeconds() << " *** Number of STA associated: " << Get_STA_record_num() << " *****" << std::endl;
 
   for (STA_recordVector::const_iterator index = assoc_vector.begin (); index != assoc_vector.end (); index++) {
-  //std::cout << Simulator::Now () << " ********************** AP with ID " << (*index)->GetApid() << " has MAC: " << (*index)->GetMac() << " *****" << std::endl;
+  //std::cout << Simulator::Now ().GetSeconds() << " ********************** AP with ID " << (*index)->GetApid() << " has MAC: " << (*index)->GetMac() << " *****" << std::endl;
 
     if ( (*index)->GetStaid () == thisSTAid ) {
       staRecordMaxSizeAmpdu = (*index)->GetMaxSizeAmpdu ();
       if ( myverbose > 0 )
-        std::cout << Simulator::Now () 
+        std::cout << Simulator::Now ().GetSeconds() 
                   << "\t[GetstaRecordMaxSizeAmpdu]\tAP #" << (*index)->GetMac() 
                   << " has AMDPU: " << (*index)->GetMaxSizeAmpdu() 
                   << "" << std::endl;
@@ -1690,7 +1694,7 @@ struct VoIPStatistics {
   uint32_t lastPeriodPackets;
 };
 
-// Adjust the size of the AMPDU
+// Dynamically adjust the size of the AMPDU
 void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
                   uint32_t verboseLevel,
                   double timeInterval,
@@ -1702,15 +1706,18 @@ void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
   // For each AP, find the highest value of the delay of the associated STAs
   for (AP_recordVector::const_iterator indexAP = AP_vector.begin (); indexAP != AP_vector.end (); indexAP++) {
     if (verboseLevel > 0)
-      std::cout << Simulator::Now ()
+      std::cout << Simulator::Now ().GetSeconds()
                 << "\t[adjustAMPDU]"
-                << "   \tAP #" << (*indexAP)->GetApid() 
+                << "\tAP #" << (*indexAP)->GetApid() 
                 << " with MAC " << (*indexAP)->GetMac() 
                 << " Max size AMPDU " << (*indexAP)->GetMaxSizeAmpdu() 
                 << " Channel " << uint16_t((*indexAP)->GetWirelessChannel())
                 << std::endl;
 
-    // find all the STAs associated to that AP
+    // find the highest latency of all the STAs associated to that AP
+    double highestLatencyThisAP = 0.0;
+
+
     for (STA_recordVector::const_iterator indexSTA = assoc_vector.begin (); indexSTA != assoc_vector.end (); indexSTA++) {
 
       // if the STA is associated
@@ -1723,19 +1730,19 @@ void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
           std::ostringstream auxString;
           // create a string with the MAC
           auxString << "02-06-" << (*indexSTA)->GetMac();
-          std::string myAPaddress = auxString.str();
+          std::string addressOfTheAPwhereThisSTAis = auxString.str();
 
           // if the STA is associated to this AP
-          if ( (*indexAP)->GetMac() == myAPaddress ) {
+          if ( (*indexAP)->GetMac() == addressOfTheAPwhereThisSTAis ) {
 
             if (verboseLevel > 0) {
-              std::cout << Simulator::Now () 
+              std::cout << Simulator::Now ().GetSeconds() 
                         << "\t[adjustAMPDU]"
-                        << "   \t\tSTA #" << (*indexSTA)->GetStaid() 
-                        //<< "\tassociated to AP #" << GetAnAP_Id(myAPaddress) 
-                        //<< "\twith MAC " << (*indexSTA)->GetMac()
+                        << "\t\tSTA #" << (*indexSTA)->GetStaid() 
+                        << "\tassociated to AP #" << GetAnAP_Id(addressOfTheAPwhereThisSTAis) 
+                        << "\twith MAC " << (*indexSTA)->GetMac()
                         ;
-              if ((*indexSTA)->Gettypeofapplication () ==1)
+              if ((*indexSTA)->Gettypeofapplication () == 1)
                 std::cout << "\t VoIP upload";
               else
                 std::cout << "\t VoIP download";
@@ -1744,63 +1751,57 @@ void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
               std::cout << "\tDelay: " << myVoIPStatistics[ (*indexSTA)->GetStaid() - numberofAPs ].lastPeriodDelay 
                         //<< "\t (*indexSTA)->GetStaid()  - numberofAPs is " << (*indexSTA)->GetStaid() - numberofAPs
                         << std::endl;
-
-              // check if the latency is above of the latency budget
-              if ( myVoIPStatistics[ (*indexSTA)->GetStaid() - numberofAPs ].lastPeriodDelay > latencyBudget ) {
-                // reduce the AMPDU of the AP
-                ModifyAmpdu ( GetAnAP_Id(myAPaddress), (*indexAP)->GetMaxSizeAmpdu() - STEPADJUSTAMPDU, 1 );
-                Modify_AP_Record (GetAnAP_Id(myAPaddress), myAPaddress, (*indexAP)->GetMaxSizeAmpdu() - STEPADJUSTAMPDU );
-
-                if (verboseLevel > 0)
-                  std::cout << Simulator::Now () 
-                            << "\t[adjustAMPDU]"
-                            << "\t[adjustAMPDU]\tAggregation in AP #" << GetAnAP_Id(myAPaddress) 
-                            << "\twith MAC: " << myAPaddress 
-                            << "\tset to " << (*indexAP)->GetMaxSizeAmpdu()
-                            << std::endl;
-              } else {
-                // increase the AMPDU of the AP
-                if ( (*indexAP)->GetMaxSizeAmpdu() < maxAmpduSize ) {
-                  ModifyAmpdu ( GetAnAP_Id(myAPaddress), (*indexAP)->GetMaxSizeAmpdu() + STEPADJUSTAMPDU, 1 );
-                  Modify_AP_Record (GetAnAP_Id(myAPaddress), myAPaddress, (*indexAP)->GetMaxSizeAmpdu() + STEPADJUSTAMPDU );
-
-                  if (verboseLevel > 0)
-                    std::cout << Simulator::Now () 
-                              << "\t[adjustAMPDU]"
-                              << "\t[adjustAMPDU]\tAggregation in AP #" << GetAnAP_Id(myAPaddress) 
-                              << "\twith MAC: " << myAPaddress 
-                              << "\tset to " << (*indexAP)->GetMaxSizeAmpdu()
-                              << std::endl;
-                }
-              }
             }
+
+            if ( myVoIPStatistics[ (*indexSTA)->GetStaid() - numberofAPs ].lastPeriodDelay > highestLatencyThisAP)
+              highestLatencyThisAP = myVoIPStatistics[ (*indexSTA)->GetStaid() - numberofAPs ].lastPeriodDelay;
           }
         }
       }
     }
+
+    // Variable to store the new value of the max AMPDU
+    uint32_t newAmpduValue;
+
+    // check if the latency is above of the latency budget
+    if ( highestLatencyThisAP > latencyBudget ) {
+
+      // reduce the AMPDU of the AP
+      if ((*indexAP)->GetMaxSizeAmpdu() > ( AGGRESSIVENESS * STEPADJUSTAMPDU ) ) {
+        newAmpduValue = (*indexAP)->GetMaxSizeAmpdu() - ( AGGRESSIVENESS * STEPADJUSTAMPDU );
+        if ( newAmpduValue < MTU )
+          newAmpduValue = MTU + 100;
+      }
+      else
+        newAmpduValue = MTU + 100;
+
+      //newAmpduValue = (*indexAP)->GetMaxSizeAmpdu() / 2;  // more aggressive
+
+      ModifyAmpdu ( GetAnAP_Id((*indexAP)->GetMac()), newAmpduValue, 1 );
+      Modify_AP_Record (GetAnAP_Id((*indexAP)->GetMac()), (*indexAP)->GetMac(), newAmpduValue );
+
+
+    // if the latency is below the latency budget  
+    } else {
+
+      // increase the AMPDU of the AP
+      if ((*indexAP)->GetMaxSizeAmpdu() + STEPADJUSTAMPDU < maxAmpduSize)
+        newAmpduValue = (*indexAP)->GetMaxSizeAmpdu() + STEPADJUSTAMPDU;
+      else
+        newAmpduValue = maxAmpduSize;
+
+      ModifyAmpdu ( GetAnAP_Id((*indexAP)->GetMac()), newAmpduValue, 1 );
+      Modify_AP_Record (GetAnAP_Id((*indexAP)->GetMac()), (*indexAP)->GetMac(), newAmpduValue );
+    }
+    if (verboseLevel > 0)
+      std::cout << Simulator::Now ().GetSeconds()
+                << "\t[adjustAMPDU]"
+                //<< "\tAP #" << GetAnAP_Id((*indexAP)->GetMac())
+                << "\t\tHighest Latency: " << highestLatencyThisAP
+                //<< "\twith MAC: " << (*indexAP)->GetMac() 
+                << "\tAMPDU set to " << (*indexAP)->GetMaxSizeAmpdu()
+                << std::endl << std::endl;
   }
-
-  //GetAP_MaxSizeAmpdu ( GetAnAP_Id(myaddress), staRecordVerboseLevel );
-
-  // I modify the A-MPDU of this AP
-  // =  + STEPADJUSTAMPDU;
-  //
-/*
-  // If there is no remaining STA running VoIP associated
-  if ( anyStaWithVoIPAssociated == false ) {
-    // enable aggregation in the AP
-    // Modify the A-MPDU of this AP
-    ModifyAmpdu (GetAnAP_Id(myaddress), staRecordMaxAmpduSize, 1);
-    Modify_AP_Record (GetAnAP_Id(myaddress), myaddress, staRecordMaxAmpduSize);
-
-    if (staRecordVerboseLevel > 0)
-      std::cout << Simulator::Now () 
-                << "\t[adjustAMPDU]\tAggregation in AP #" << GetAnAP_Id(myaddress) 
-                << "\twith MAC: " << myaddress 
-                << "\tset to " << staRecordMaxAmpduSize 
-                << "\t(enabled)" << std::endl;
-
-*/
 
   // Reschedule the calculation
   Simulator::Schedule(  Seconds(timeInterval),
@@ -1813,7 +1814,8 @@ void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
                         maxAmpduSize);
 }
 
-// Obtain periodically the statistics of the VoIP flows, using Flowmonitor
+
+// Periodically obtain the statistics of the VoIP flows, using Flowmonitor
 void obtainStats (Ptr<FlowMonitor> monitor/*, FlowMonitorHelper flowmon*/, 
                   VoIPStatistics* myVoIPStatistics,
                   uint16_t numberVoIPuploadFlows,
@@ -1842,7 +1844,7 @@ void obtainStats (Ptr<FlowMonitor> monitor/*, FlowMonitorHelper flowmon*/,
 
       double averageJitter = (i->second.jitterSum.GetSeconds() - myVoIPStatistics[k].acumJitter) / totalPackets;
 
-      if (verboseLevel > 0) {
+      if (verboseLevel > 1) {
 
         std::cout << Simulator::Now();
         std::cout << "\t[obtainStats] flow " << i->first;
@@ -1928,8 +1930,8 @@ int main (int argc, char *argv[]) {
                             // 1: each server application is in a node connected to the hub
                             // 2: each server application is in a node behind the router, connected to it with a P2P connection
 
-  uint32_t TcpPayloadSize = 1448; //bytes. Prevent fragmentation. Taken from https://www.nsnam.org/doxygen/codel-vs-pfifo-asymmetric_8cc_source.html
-  uint32_t VideoMaxPacketSize = 1472;  // Remove 20 (IP) + 8 (UDP) bytes from MTU (1500)
+  uint32_t TcpPayloadSize = MTU - 52; // 1448 bytes. Prevent fragmentation. Taken from https://www.nsnam.org/doxygen/codel-vs-pfifo-asymmetric_8cc_source.html
+  uint32_t VideoMaxPacketSize = MTU - 20 - 8;  //1472 bytes. Remove 20 (IP) + 8 (UDP) bytes from MTU (1500)
 
   std::string TcpVariant = "TcpNewReno"; // other options "TcpHighSpeed", "TcpWestwoodPlus"
 
@@ -1988,7 +1990,7 @@ int main (int argc, char *argv[]) {
   uint32_t maxAmpduSize;     // taken from https://www.nsnam.org/doxygen/minstrel-ht-wifi-manager-example_8cc_source.html
 
   // Assign the selected value of the MAX AMPDU
-  if (version80211 == 0) {
+  if ( (version80211 == 0) || (version80211 == 2) ) {
     maxAmpduSize = MAXSIZE80211n;
   } else {
     maxAmpduSize = MAXSIZE80211ac;
