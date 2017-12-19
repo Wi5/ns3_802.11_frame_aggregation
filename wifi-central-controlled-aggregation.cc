@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v159
+ * v160
  * Developed and tested for ns-3.26, although the simulation crashes in some cases. One example:
  *    - more than one AP
  *    - set the RtsCtsThreshold below 48000
@@ -207,8 +207,8 @@ Two possibilities:
 #include "ns3/spectrum-module.h"    // For the spectrum channel
 #include <ns3/friis-spectrum-propagation-loss.h>
 #include "ns3/ipv4-static-routing-helper.h"
+#include "ns3/random-variable-stream.h"
 #include <sstream>
-#include <random>
 
 //#include "ns3/arp-cache.h"  // If you want to do things with the ARPs
 //#include "ns3/arp-header.h"
@@ -1748,12 +1748,21 @@ void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
                 std::cout << "\t VoIP download";
 
               // the first STA is created after the last AP. Therefore, (*indexSTA)->GetStaid() - numberofAPs is 0 for the first VoIP STA
-              std::cout << "\tDelay: " << myVoIPStatistics[ (*indexSTA)->GetStaid() - numberofAPs ].lastPeriodDelay 
-                        //<< "\t (*indexSTA)->GetStaid()  - numberofAPs is " << (*indexSTA)->GetStaid() - numberofAPs
-                        << std::endl;
+              // isnan checks if the value is not a number
+              if (!isnan(myVoIPStatistics[ (*indexSTA)->GetStaid() - numberofAPs ].lastPeriodDelay))
+                std::cout << "\tDelay: " << myVoIPStatistics[ (*indexSTA)->GetStaid() - numberofAPs ].lastPeriodDelay 
+                          //<< "\t (*indexSTA)->GetStaid()  - numberofAPs is " << (*indexSTA)->GetStaid() - numberofAPs
+                          << std::endl;
+              else 
+                std::cout << "\tNot defined in this period" 
+                          //<< "\t (*indexSTA)->GetStaid()  - numberofAPs is " << (*indexSTA)->GetStaid() - numberofAPs
+                          << std::endl;
+
             }
 
-            if ( myVoIPStatistics[ (*indexSTA)->GetStaid() - numberofAPs ].lastPeriodDelay > highestLatencyThisAP)
+            if (  myVoIPStatistics[ (*indexSTA)->GetStaid() - numberofAPs ].lastPeriodDelay > highestLatencyThisAP && 
+                  !isnan(myVoIPStatistics[ (*indexSTA)->GetStaid() - numberofAPs ].lastPeriodDelay)) // isnan checks if the value is not a number
+
               highestLatencyThisAP = myVoIPStatistics[ (*indexSTA)->GetStaid() - numberofAPs ].lastPeriodDelay;
           }
         }
@@ -3811,13 +3820,6 @@ int main (int argc, char *argv[]) {
   UdpServerHelper myVideoDownServer;
   ApplicationContainer VideoDownServer;
 
-  // I will select one movie between a number of them
-  // Generate a random integer https://stackoverflow.com/questions/5008804/generating-random-integer-from-a-range
-  std::random_device rd;     // only used once to initialise (seed) engine
-  std::mt19937 rng(rd());    // random-number engine used (Mersenne-Twister in this case)
-  uint16_t numberOfMovies = 4;
-  std::uniform_int_distribution<int> uni(1,numberOfMovies); // guaranteed unbiased
-
   for (uint16_t i = numberVoIPupload + numberVoIPdownload + numberTCPupload + numberTCPdownload; 
                 i < numberVoIPupload + numberVoIPdownload + numberTCPupload + numberTCPdownload + numberVideoDownload; 
                 i++) {
@@ -3843,18 +3845,23 @@ int main (int argc, char *argv[]) {
     myVideoDownClient.SetAttribute ("TraceLoop", BooleanValue (1));
 
 
+    // Random integer for choosing the movie
+    uint16_t numberOfMovies = 4;
+    Ptr<UniformRandomVariable> x = CreateObject<UniformRandomVariable> ();
+    double random_number = x->GetValue(0.0, numberOfMovies * 1.0);
+
+    if ( verboseLevel > 2 )
+      std::cout << "Random number: " << random_number << "\n\n";
+
     std::string movieFileName;  // The files have to be in the /ns-3-allinone/ns-3-dev/traces folder
 
-    // Random integer for choosing the movie
-    auto random_integer = uni(rng);
-
-    if (random_integer == 1 )
+    if (random_number < 1.0 )
       movieFileName = "traces/Verbose_Jurassic.dat";   //http://www2.tkn.tu-berlin.de/research/trace/pics/FrameTrace/mp4/Verbose_Jurassic.dat
-    else if (random_integer == 2)
+    else if (random_number < 2.0 )
     movieFileName = "traces/Verbose_FirstContact.dat"; //http://www2.tkn.tu-berlin.de/research/trace/pics/FrameTrace/mp4/Verbose_FirstContact.dat
-    else if (random_integer == 3)
+    else if (random_number < 3.0 )
       movieFileName = "traces/Verbose_StarWarsIV.dat";  //http://www2.tkn.tu-berlin.de/research/trace/pics/FrameTrace/mp4/Verbose_StarWarsIV.dat
-    else if (random_integer == 4)
+    else if (random_number < 4.0 )
       movieFileName = "traces/Verbose_DieHardIII.dat";  //http://www2.tkn.tu-berlin.de/research/trace/pics/FrameTrace/mp4/Verbose_DieHardIII.dat
 
     myVideoDownClient.SetAttribute ("TraceFilename", StringValue (movieFileName)); 
