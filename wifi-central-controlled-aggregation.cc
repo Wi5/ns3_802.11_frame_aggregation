@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v160
+ * v161
  * Developed and tested for ns-3.26, although the simulation crashes in some cases. One example:
  *    - more than one AP
  *    - set the RtsCtsThreshold below 48000
@@ -1894,6 +1894,46 @@ void obtainStats (Ptr<FlowMonitor> monitor/*, FlowMonitorHelper flowmon*/,
                         timeInterval);
 }
 
+
+// Periodically obtain the statistics of the VoIP flows, using Flowmonitor
+void saveStats (  std::string mynameKPIFile,
+                  VoIPStatistics* myVoIPStatistics,
+                  uint16_t numberVoIPuploadFlows,
+                  uint16_t numberVoIPdownloadFlows,
+                  uint32_t verboseLevel,
+                  double timeInterval)  //Interval between monitoring moments
+{
+
+  std::cout << Simulator::Now() << "\t" << mynameKPIFile << '\n';
+
+  // print the results to a file (they are written at the end of the file)
+  if ( mynameKPIFile != "" ) {
+
+    std::ofstream ofs;
+    ofs.open ( mynameKPIFile, std::ofstream::out | std::ofstream::app); // with "trunc" Any contents that existed in the file before it is open are discarded. with "app", all output operations happen at the end of the file, appending to its existing contents
+
+    for (uint16_t k = 0; k < numberVoIPuploadFlows + numberVoIPdownloadFlows; k++) {
+      ofs << k << "\t";
+      if ( k < numberVoIPdownloadFlows )
+        ofs << "VoIP_upload\t";
+      else
+        ofs << "VoIP_download\t";
+      ofs << myVoIPStatistics[k].lastPeriodDelay << "\t"
+          << myVoIPStatistics[k].lastPeriodJitter << "\t"
+          << myVoIPStatistics[k].lastPeriodPackets << "\t"
+          << Simulator::Now() << "\n";
+    }
+  }
+  // Reschedule the writing
+  Simulator::Schedule(  Seconds(timeInterval),
+                        &saveStats,
+                        mynameKPIFile,
+                        myVoIPStatistics,
+                        numberVoIPuploadFlows,
+                        numberVoIPdownloadFlows,
+                        verboseLevel,
+                        timeInterval);
+}
 
 
 int main (int argc, char *argv[]) {
@@ -3999,8 +4039,37 @@ int main (int argc, char *argv[]) {
                           verboseLevel,
                           timeMonitorDelay);
 
+    // Write the values of the network KPIs (delay, etc.) to a file
+    // create a string with the name of the output file
+    std::ostringstream nameKPIFile;
+
+    nameKPIFile  << outputFileName
+                  << "_"
+                  << outputFileSurname
+                  << "_KPIs.txt";
+
+    std::ofstream ofs;
+    ofs.open ( nameKPIFile.str(), std::ofstream::out | std::ofstream::trunc); // with "trunc" Any contents that existed in the file before it is open are discarded. with "app", all output operations happen at the end of the file, appending to its existing contents
+
+    // write the first line in the file (includes the titles of the columns)
+    ofs << "ID" << "\t"
+        << "application" << "\t"
+        << "delay" << "\t"
+        << "jitter" << "\t" 
+        << "numPackets" << "\n";
+
+    // I schedule this after the first time when statistics have been obtained
+    Simulator::Schedule(  Seconds(initial_time_interval + timeMonitorDelay + 0.0001),
+                          &saveStats,
+                          nameKPIFile.str(),
+                          myVoIPStatistics,
+                          numberVoIPupload,
+                          numberVoIPdownload,
+                          verboseLevel,
+                          timeMonitorDelay);
+
     // Modify the AMPDU of the APs where there are VoIP flows
-    Simulator::Schedule(  Seconds(initial_time_interval + 0.001),
+    Simulator::Schedule(  Seconds(initial_time_interval + timeMonitorDelay + 0.0002),
                           &adjustAMPDU,
                           myVoIPStatistics,
                           verboseLevel,
