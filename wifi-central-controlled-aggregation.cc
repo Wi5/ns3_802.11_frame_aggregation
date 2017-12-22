@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v161
+ * v162
  * Developed and tested for ns-3.26, although the simulation crashes in some cases. One example:
  *    - more than one AP
  *    - set the RtsCtsThreshold below 48000
@@ -272,7 +272,7 @@ void ChangeFrequencyLocal
       }
 */
       if (myverbose > 1)
-        std::cout << Simulator::Now() 
+        std::cout << Simulator::Now().GetSeconds()
                   << "\t[ChangeFrequencyLocal]\tChanged channel on STA with MAC " << deviceslink.Get (i)->GetAddress () 
                   << "  to:  " << uint16_t(channel) << std::endl;
     }
@@ -568,7 +568,7 @@ void ModifyAmpdu (uint32_t nodeNumber, uint32_t ampduValue, uint32_t myverbose)
   Config::Set(auxString.str(),  UintegerValue(ampduValue));  
 
   if ( myverbose > 1 )
-    std::cout << Simulator::Now() 
+    std::cout << Simulator::Now().GetSeconds()
               << "\t[ModifyAmpdu] Node #" << nodeNumber 
               << " AMPDU max size changed to " << ampduValue << " bytes" 
               << std::endl;
@@ -613,7 +613,7 @@ nearestAp (NodeContainer APs, Ptr<Node> mySTA, int myverbose)
   Vector posAp;
 
   if (myverbose > 3)
-    std::cout << (Simulator::Now()) << "\t[nearestAp]\tSTA #" << mySTA->GetId() <<  "\tPosition: "  << posSta.x << "," << posSta.y << std::endl;
+    std::cout << Simulator::Now().GetSeconds() << "\t[nearestAp]\tSTA #" << mySTA->GetId() <<  "\tPosition: "  << posSta.x << "," << posSta.y << std::endl;
 
   // Check all the APs to find the nearest one
   NodeContainer::Iterator i; 
@@ -630,7 +630,7 @@ nearestAp (NodeContainer APs, Ptr<Node> mySTA, int myverbose)
   }
 
   if (myverbose > 3)
-    std::cout << Simulator::Now()
+    std::cout << Simulator::Now().GetSeconds()
               << "\t[nearestAp]\t\tNearest AP is AP#" << nearest->GetId() 
               <<  ". Position: "  << GetPosition((nearest)).x 
               << "," << GetPosition((nearest)).y 
@@ -651,7 +651,7 @@ ReportPosition (Ptr<Node> node, int i, int type, int myverbose, NodeContainer my
   if (myverbose > 2)
     {
       if (type == 0) {
-        std::cout << Simulator::Now() 
+        std::cout << Simulator::Now().GetSeconds()
                   << "\t[ReportPosition] AP  #" << i 
                   <<  " Position: "  << pos.x 
                   << "," << pos.y 
@@ -660,7 +660,7 @@ ReportPosition (Ptr<Node> node, int i, int type, int myverbose, NodeContainer my
         // Find the nearest AP
         Ptr<Node> nearest;
         nearest = nearestAp (myApNodes, node, myverbose);
-        std::cout << Simulator::Now() 
+        std::cout << Simulator::Now().GetSeconds()
                   << "\t[ReportPosition] STA #" << i 
                   <<  " Position: "  << pos.x 
                   << "," << pos.y 
@@ -677,7 +677,7 @@ ReportPosition (Ptr<Node> node, int i, int type, int myverbose, NodeContainer my
 // Print the simulation time to std::cout
 static void printTime (uint32_t period, std::string myoutputFileName, std::string myoutputFileSurname)
 {
-  std::cout << Simulator::Now() << "\t" << myoutputFileName << "_" << myoutputFileSurname << '\n';
+  std::cout << Simulator::Now().GetSeconds() << "\t" << myoutputFileName << "_" << myoutputFileSurname << '\n';
 
   // re-schedule 
   Simulator::Schedule (Seconds (period), &printTime, period, myoutputFileName, myoutputFileSurname);
@@ -1688,10 +1688,12 @@ FlowMonitorHelper flowmon;  // FIXME avoid this global variable
 struct VoIPStatistics {
   double acumDelay;
   double acumJitter;
-  uint32_t acumNumPackets;
+  uint32_t acumRxPackets;
+  uint32_t acumLostPackets;
   double lastPeriodDelay;
   double lastPeriodJitter;
-  uint32_t lastPeriodPackets;
+  uint32_t lastPeriodRxPackets;
+  uint32_t lastPeriodLostPackets;
 };
 
 // Dynamically adjust the size of the AMPDU
@@ -1702,7 +1704,6 @@ void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
                   double latencyBudget,
                   uint32_t maxAmpduSize)
 {
-
   // For each AP, find the highest value of the delay of the associated STAs
   for (AP_recordVector::const_iterator indexAP = AP_vector.begin (); indexAP != AP_vector.end (); indexAP++) {
     if (verboseLevel > 0)
@@ -1716,7 +1717,6 @@ void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
 
     // find the highest latency of all the STAs associated to that AP
     double highestLatencyThisAP = 0.0;
-
 
     for (STA_recordVector::const_iterator indexSTA = assoc_vector.begin (); indexSTA != assoc_vector.end (); indexSTA++) {
 
@@ -1757,7 +1757,6 @@ void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
                 std::cout << "\tNot defined in this period" 
                           //<< "\t (*indexSTA)->GetStaid()  - numberofAPs is " << (*indexSTA)->GetStaid() - numberofAPs
                           << std::endl;
-
             }
 
             if (  myVoIPStatistics[ (*indexSTA)->GetStaid() - numberofAPs ].lastPeriodDelay > highestLatencyThisAP && 
@@ -1847,15 +1846,17 @@ void obtainStats (Ptr<FlowMonitor> monitor/*, FlowMonitorHelper flowmon*/,
           (t.destinationPort < INITIALPORT + numberVoIPuploadFlows + numberVoIPdownloadFlows )) {
 
       // obtain the average latency and jitter only in the last interval
-      uint32_t totalPackets = i->second.rxPackets - myVoIPStatistics[k].acumNumPackets;
+      uint32_t RxPackets = i->second.rxPackets - myVoIPStatistics[k].acumRxPackets;
 
-      double averageLatency = (i->second.delaySum.GetSeconds() - myVoIPStatistics[k].acumDelay) / totalPackets;
+      uint32_t lostPackets = i->second.lostPackets - myVoIPStatistics[k].acumLostPackets;
 
-      double averageJitter = (i->second.jitterSum.GetSeconds() - myVoIPStatistics[k].acumJitter) / totalPackets;
+      double averageLatency = (i->second.delaySum.GetSeconds() - myVoIPStatistics[k].acumDelay) / RxPackets;
+
+      double averageJitter = (i->second.jitterSum.GetSeconds() - myVoIPStatistics[k].acumJitter) / RxPackets;
 
       if (verboseLevel > 1) {
 
-        std::cout << Simulator::Now();
+        std::cout << Simulator::Now().GetSeconds();
         std::cout << "\t[obtainStats] flow " << i->first;
         if (t.destinationPort < INITIALPORT + numberVoIPuploadFlows )
           std::cout << "\tVoIP upload\n";
@@ -1864,20 +1865,25 @@ void obtainStats (Ptr<FlowMonitor> monitor/*, FlowMonitorHelper flowmon*/,
         if (verboseLevel > 1) {
           std::cout << "\t\t\tAcum delay at the beginning of the period: "<< myVoIPStatistics[k].acumDelay << "\n";
           std::cout << "\t\t\tAcum delay at the end of the period: " << i->second.delaySum.GetSeconds() << "\n";
+          std::cout << "\t\t\tAcum number of Rx packets: " << i->second.rxPackets << "\n";
+          std::cout << "\t\t\tAcum number of lost packets: " << i->second.lostPackets << "\n";  //This does not work correctly
         }
-        std::cout << "\t\t\tNumber of packets this period: " << i->second.rxPackets << "\n";
         std::cout << "\t\t\tAverage delay this period: " << averageLatency << "\n";
         std::cout << "\t\t\tAverage jitter this period: " << averageJitter << "\n";
+        std::cout << "\t\t\tNumber of Rx packets this period: " << RxPackets << "\n";
+        std::cout << "\t\t\tNumber of lost packets this period: " << lostPackets << "\n"; //This does not work correctly
         //std::cout << "\tt\tk= " << k << "\n";
       }
 
       // update the values of the statistics
       myVoIPStatistics[k].acumDelay = i->second.delaySum.GetSeconds();
       myVoIPStatistics[k].acumJitter = i->second.jitterSum.GetSeconds();
-      myVoIPStatistics[k].acumNumPackets = i->second.rxPackets;
+      myVoIPStatistics[k].acumRxPackets = i->second.rxPackets;
+      myVoIPStatistics[k].acumLostPackets = i->second.lostPackets;
       myVoIPStatistics[k].lastPeriodDelay = averageLatency;
       myVoIPStatistics[k].lastPeriodJitter = averageJitter;
-      myVoIPStatistics[k].lastPeriodPackets = totalPackets;
+      myVoIPStatistics[k].lastPeriodRxPackets = RxPackets;
+      myVoIPStatistics[k].lastPeriodLostPackets = lostPackets;
 
       k ++;
     } 
@@ -1904,7 +1910,7 @@ void saveStats (  std::string mynameKPIFile,
                   double timeInterval)  //Interval between monitoring moments
 {
 
-  std::cout << Simulator::Now() << "\t" << mynameKPIFile << '\n';
+  std::cout << Simulator::Now().GetSeconds() << "\t" << mynameKPIFile << '\n';
 
   // print the results to a file (they are written at the end of the file)
   if ( mynameKPIFile != "" ) {
@@ -1920,8 +1926,9 @@ void saveStats (  std::string mynameKPIFile,
         ofs << "VoIP_download\t";
       ofs << myVoIPStatistics[k].lastPeriodDelay << "\t"
           << myVoIPStatistics[k].lastPeriodJitter << "\t"
-          << myVoIPStatistics[k].lastPeriodPackets << "\t"
-          << Simulator::Now() << "\n";
+          << myVoIPStatistics[k].lastPeriodRxPackets << "\t"
+          << myVoIPStatistics[k].lastPeriodLostPackets << "\t"
+          << Simulator::Now().GetSeconds() << "\n";
     }
   }
   // Reschedule the writing
@@ -2347,7 +2354,8 @@ int main (int argc, char *argv[]) {
   for (uint16_t i=0; i < numberVoIPupload + numberVoIPdownload; i++) {
     myVoIPStatistics[i].acumDelay = 0.0;
     myVoIPStatistics[i].acumJitter = 0.0;
-    myVoIPStatistics[i].acumNumPackets = 0;
+    myVoIPStatistics[i].acumRxPackets = 0;
+    myVoIPStatistics[i].acumLostPackets = 0;
   }
 
 
@@ -4056,7 +4064,9 @@ int main (int argc, char *argv[]) {
         << "application" << "\t"
         << "delay" << "\t"
         << "jitter" << "\t" 
-        << "numPackets" << "\n";
+        << "numRxPackets" << "\t"
+        << "numlostPackets" << "\t"
+        << "timestamp" << "\n";
 
     // I schedule this after the first time when statistics have been obtained
     Simulator::Schedule(  Seconds(initial_time_interval + timeMonitorDelay + 0.0001),
