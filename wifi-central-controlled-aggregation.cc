@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v162
+ * v163
  * Developed and tested for ns-3.26, although the simulation crashes in some cases. One example:
  *    - more than one AP
  *    - set the RtsCtsThreshold below 48000
@@ -1077,7 +1077,7 @@ class STA_record
     bool assoc;
     uint16_t staid;
     Mac48Address apMac;
-    uint32_t typeofapplication; // 0 no application; 1 VoIP upload; 2 VoIP download; 3 TCP upload; 4 TCP download
+    uint32_t typeofapplication; // 0 no application; 1 VoIP upload; 2 VoIP download; 3 TCP upload; 4 TCP download; 5 Video download
     uint32_t staRecordMaxSizeAmpdu;
     uint32_t staRecordVerboseLevel;
     uint32_t staRecordNumChannels;
@@ -1774,7 +1774,7 @@ void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
     // check if the latency is above of the latency budget
     if ( highestLatencyThisAP > latencyBudget ) {
 
-      // reduce the AMPDU of the AP
+      // reduce the AMPDU value
       if ((*indexAP)->GetMaxSizeAmpdu() > ( AGGRESSIVENESS * STEPADJUSTAMPDU ) ) {
         newAmpduValue = (*indexAP)->GetMaxSizeAmpdu() - ( AGGRESSIVENESS * STEPADJUSTAMPDU );
         if ( newAmpduValue < MTU )
@@ -1785,30 +1785,73 @@ void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
 
       //newAmpduValue = (*indexAP)->GetMaxSizeAmpdu() / 2;  // more aggressive
 
-      ModifyAmpdu ( GetAnAP_Id((*indexAP)->GetMac()), newAmpduValue, 1 );
-      Modify_AP_Record (GetAnAP_Id((*indexAP)->GetMac()), (*indexAP)->GetMac(), newAmpduValue );
-
-
     // if the latency is below the latency budget  
     } else {
 
-      // increase the AMPDU of the AP
+      // increase the AMPDU value
       if ((*indexAP)->GetMaxSizeAmpdu() + STEPADJUSTAMPDU < maxAmpduSize)
         newAmpduValue = (*indexAP)->GetMaxSizeAmpdu() + STEPADJUSTAMPDU;
       else
         newAmpduValue = maxAmpduSize;
-
-      ModifyAmpdu ( GetAnAP_Id((*indexAP)->GetMac()), newAmpduValue, 1 );
-      Modify_AP_Record (GetAnAP_Id((*indexAP)->GetMac()), (*indexAP)->GetMac(), newAmpduValue );
     }
+
+    // Modify the AMPDU value of the AP itself
+    ModifyAmpdu ( GetAnAP_Id((*indexAP)->GetMac()), newAmpduValue, 1 );
+    Modify_AP_Record (GetAnAP_Id((*indexAP)->GetMac()), (*indexAP)->GetMac(), newAmpduValue );
+
+    // Report the AMPDU modification
     if (verboseLevel > 0)
       std::cout << Simulator::Now ().GetSeconds()
                 << "\t[adjustAMPDU]"
                 //<< "\tAP #" << GetAnAP_Id((*indexAP)->GetMac())
                 << "\t\tHighest Latency: " << highestLatencyThisAP
                 //<< "\twith MAC: " << (*indexAP)->GetMac() 
-                << "\tAMPDU set to " << (*indexAP)->GetMaxSizeAmpdu()
-                << std::endl << std::endl;
+                << "\tAMPDU of the AP set to " << (*indexAP)->GetMaxSizeAmpdu()
+                << std::endl;
+
+    // Modify the AMPDU value of the STAs associated to the AP which are NOT running VoIP (VoIP STAs never use aggregation)
+    for (STA_recordVector::const_iterator indexSTA = assoc_vector.begin (); indexSTA != assoc_vector.end (); indexSTA++) {
+
+      // if the STA is associated
+      if ((*indexSTA)->GetAssoc()) {
+
+        // if the STA is NOT running VoIP
+        if ( ( (*indexSTA)->Gettypeofapplication () > 2) ) {
+
+          // auxiliar string
+          std::ostringstream auxString;
+          // create a string with the MAC
+          auxString << "02-06-" << (*indexSTA)->GetMac();
+          std::string addressOfTheAPwhereThisSTAis = auxString.str();
+
+          // if the STA is associated to this AP
+          if ( (*indexAP)->GetMac() == addressOfTheAPwhereThisSTAis ) {
+            // modify the AMPDU value
+            ModifyAmpdu ((*indexSTA)->GetStaid(), newAmpduValue, 1);  // modify the AMPDU in the STA node
+            (*indexSTA)->SetMaxSizeAmpdu(newAmpduValue);              // update the data in the STA_record structure
+
+            // Report this fact
+            if (verboseLevel > 0) {
+              std::cout << Simulator::Now ().GetSeconds() 
+                        << "\t[adjustAMPDU]"
+                        << "\t\tSTA #" << (*indexSTA)->GetStaid() 
+                        << "\tassociated to AP #" << GetAnAP_Id(addressOfTheAPwhereThisSTAis) 
+                        << "\twith MAC " << (*indexSTA)->GetMac()
+                        << "\tAMPDU of the STA set to " << newAmpduValue;
+
+              if ((*indexSTA)->Gettypeofapplication () == 3)
+                std::cout << "\t TCP upload";
+              else if ((*indexSTA)->Gettypeofapplication () == 4)
+                std::cout << "\t TCP download";
+              else
+                std::cout << "\t UDP Video download";
+
+              std::cout << "\n";              
+            }
+          }
+        }
+      }
+    }
   }
 
   // Reschedule the calculation
@@ -1866,12 +1909,14 @@ void obtainStats (Ptr<FlowMonitor> monitor/*, FlowMonitorHelper flowmon*/,
           std::cout << "\t\t\tAcum delay at the beginning of the period: "<< myVoIPStatistics[k].acumDelay << "\n";
           std::cout << "\t\t\tAcum delay at the end of the period: " << i->second.delaySum.GetSeconds() << "\n";
           std::cout << "\t\t\tAcum number of Rx packets: " << i->second.rxPackets << "\n";
-          std::cout << "\t\t\tAcum number of lost packets: " << i->second.lostPackets << "\n";  //This does not work correctly
+          std::cout << "\t\t\tAcum number of lost packets: " << i->second.lostPackets << "\n"; // FIXME
+          //The previous line does not work correctly. If you add 'monitor->CheckForLostPackets (0.01)' at the beginning of the function, the number
+          //of lost packets seems to be higher. However, the obtained number does not correspond to the final number
         }
         std::cout << "\t\t\tAverage delay this period: " << averageLatency << "\n";
         std::cout << "\t\t\tAverage jitter this period: " << averageJitter << "\n";
         std::cout << "\t\t\tNumber of Rx packets this period: " << RxPackets << "\n";
-        std::cout << "\t\t\tNumber of lost packets this period: " << lostPackets << "\n"; //This does not work correctly
+        std::cout << "\t\t\tNumber of lost packets this period: " << lostPackets << "\n"; // FIXME: This does not work correctly
         //std::cout << "\tt\tk= " << k << "\n";
       }
 
@@ -1909,8 +1954,6 @@ void saveStats (  std::string mynameKPIFile,
                   uint32_t verboseLevel,
                   double timeInterval)  //Interval between monitoring moments
 {
-
-  std::cout << Simulator::Now().GetSeconds() << "\t" << mynameKPIFile << '\n';
 
   // print the results to a file (they are written at the end of the file)
   if ( mynameKPIFile != "" ) {
