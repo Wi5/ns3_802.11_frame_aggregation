@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v163
+ * v164
  * Developed and tested for ns-3.26, although the simulation crashes in some cases. One example:
  *    - more than one AP
  *    - set the RtsCtsThreshold below 48000
@@ -186,6 +186,8 @@ Two possibilities:
 //    - name_seed-1_flow_1_delay_histogram.txt      delay histogram of flow #1
 //    - name_seed-1_flow_1_jitter_histogram.txt
 //    - name_seed-1_flow_1_packetsize_histogram.txt
+//    - name_seed-1_KPIs.txt                        text file reporting periodically the KPIs (generated if aggregationDynamicAlgorithm==1)
+//    - name_seed-1_AMPDUvalues.txt                 text file reporting periodically the AMPDU values (generated if aggregationDynamicAlgorithm==1)
 //    - name_seed-1_flowmonitor.xml
 //    - name_seed-1_AP-0.2.pcap                     pcap file of the device 2 of AP #0
 //    - name_seed-1_server-2-1.pcap                 pcap file of the device 1 of server #2
@@ -1700,9 +1702,9 @@ struct VoIPStatistics {
 void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
                   uint32_t verboseLevel,
                   double timeInterval,
-                  uint32_t numberofAPs,
                   double latencyBudget,
-                  uint32_t maxAmpduSize)
+                  uint32_t maxAmpduSize,
+                  std::string mynameAMPDUFile)
 {
   // For each AP, find the highest value of the delay of the associated STAs
   for (AP_recordVector::const_iterator indexAP = AP_vector.begin (); indexAP != AP_vector.end (); indexAP++) {
@@ -1747,29 +1749,31 @@ void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
               else
                 std::cout << "\t VoIP download";
 
-              // the first STA is created after the last AP. Therefore, (*indexSTA)->GetStaid() - numberofAPs is 0 for the first VoIP STA
+              // the first STA is created after the last AP. Therefore, (*indexSTA)->GetStaid() - AP_vector.size() is 0 for the first VoIP STA
               // isnan checks if the value is not a number
-              if (!isnan(myVoIPStatistics[ (*indexSTA)->GetStaid() - numberofAPs ].lastPeriodDelay))
-                std::cout << "\tDelay: " << myVoIPStatistics[ (*indexSTA)->GetStaid() - numberofAPs ].lastPeriodDelay 
-                          //<< "\t (*indexSTA)->GetStaid()  - numberofAPs is " << (*indexSTA)->GetStaid() - numberofAPs
+              if (!isnan(myVoIPStatistics[ (*indexSTA)->GetStaid() - AP_vector.size() ].lastPeriodDelay))
+                std::cout << "\tDelay: " << myVoIPStatistics[ (*indexSTA)->GetStaid() - AP_vector.size() ].lastPeriodDelay 
+                          //<< "\t (*indexSTA)->GetStaid()  - AP_vector.size() is " << (*indexSTA)->GetStaid() - AP_vector.size()
                           << std::endl;
               else 
                 std::cout << "\tNot defined in this period" 
-                          //<< "\t (*indexSTA)->GetStaid()  - numberofAPs is " << (*indexSTA)->GetStaid() - numberofAPs
+                          //<< "\t (*indexSTA)->GetStaid()  - AP_vector.size() is " << (*indexSTA)->GetStaid() - AP_vector.size()
                           << std::endl;
             }
 
-            if (  myVoIPStatistics[ (*indexSTA)->GetStaid() - numberofAPs ].lastPeriodDelay > highestLatencyThisAP && 
-                  !isnan(myVoIPStatistics[ (*indexSTA)->GetStaid() - numberofAPs ].lastPeriodDelay)) // isnan checks if the value is not a number
+            if (  myVoIPStatistics[ (*indexSTA)->GetStaid() - AP_vector.size() ].lastPeriodDelay > highestLatencyThisAP && 
+                  !isnan(myVoIPStatistics[ (*indexSTA)->GetStaid() - AP_vector.size() ].lastPeriodDelay)) // isnan checks if the value is not a number
 
-              highestLatencyThisAP = myVoIPStatistics[ (*indexSTA)->GetStaid() - numberofAPs ].lastPeriodDelay;
+              highestLatencyThisAP = myVoIPStatistics[ (*indexSTA)->GetStaid() - AP_vector.size() ].lastPeriodDelay;
           }
         }
       }
     }
 
     // Variable to store the new value of the max AMPDU
-    uint32_t newAmpduValue;
+    uint32_t newAmpduValue, oldAmpduValue;
+
+    oldAmpduValue = (*indexAP)->GetMaxSizeAmpdu();
 
     // check if the latency is above of the latency budget
     if ( highestLatencyThisAP > latencyBudget ) {
@@ -1795,58 +1799,110 @@ void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
         newAmpduValue = maxAmpduSize;
     }
 
-    // Modify the AMPDU value of the AP itself
-    ModifyAmpdu ( GetAnAP_Id((*indexAP)->GetMac()), newAmpduValue, 1 );
-    Modify_AP_Record (GetAnAP_Id((*indexAP)->GetMac()), (*indexAP)->GetMac(), newAmpduValue );
 
-    // Report the AMPDU modification
-    if (verboseLevel > 0)
-      std::cout << Simulator::Now ().GetSeconds()
-                << "\t[adjustAMPDU]"
-                //<< "\tAP #" << GetAnAP_Id((*indexAP)->GetMac())
-                << "\t\tHighest Latency: " << highestLatencyThisAP
-                //<< "\twith MAC: " << (*indexAP)->GetMac() 
-                << "\tAMPDU of the AP set to " << (*indexAP)->GetMaxSizeAmpdu()
-                << std::endl;
+    // Check if the AMPDU has been modified
+    if (newAmpduValue == oldAmpduValue) {
 
-    // Modify the AMPDU value of the STAs associated to the AP which are NOT running VoIP (VoIP STAs never use aggregation)
-    for (STA_recordVector::const_iterator indexSTA = assoc_vector.begin (); indexSTA != assoc_vector.end (); indexSTA++) {
+      // Report that the AMPDU has not been modified
+      if (verboseLevel > 0)
+        std::cout << Simulator::Now ().GetSeconds()
+                  << "\t[adjustAMPDU]"
+                  //<< "\tAP #" << GetAnAP_Id((*indexAP)->GetMac())
+                  << "\t\tHighest Latency: " << highestLatencyThisAP
+                  //<< "\twith MAC: " << (*indexAP)->GetMac() 
+                  << "\tAMPDU of the AP not changed (" << (*indexAP)->GetMaxSizeAmpdu() << ")"
+                  << std::endl;
 
-      // if the STA is associated
-      if ((*indexSTA)->GetAssoc()) {
+    // the AMPDU of the AP has to be modified
+    } else {
 
-        // if the STA is NOT running VoIP
-        if ( ( (*indexSTA)->Gettypeofapplication () > 2) ) {
+      // Modify the AMPDU value of the AP itself
+      ModifyAmpdu ( GetAnAP_Id((*indexAP)->GetMac()), newAmpduValue, 1 );
+      Modify_AP_Record (GetAnAP_Id((*indexAP)->GetMac()), (*indexAP)->GetMac(), newAmpduValue );
 
-          // auxiliar string
-          std::ostringstream auxString;
-          // create a string with the MAC
-          auxString << "02-06-" << (*indexSTA)->GetMac();
-          std::string addressOfTheAPwhereThisSTAis = auxString.str();
+      // Report the AMPDU modification
+      if (verboseLevel > 0)
+        std::cout << Simulator::Now ().GetSeconds()
+                  << "\t[adjustAMPDU]"
+                  //<< "\tAP #" << GetAnAP_Id((*indexAP)->GetMac())
+                  << "\t\tHighest Latency: " << highestLatencyThisAP
+                  //<< "\twith MAC: " << (*indexAP)->GetMac() 
+                  << "\tAMPDU of the AP set to " << (*indexAP)->GetMaxSizeAmpdu()
+                  << std::endl;
 
-          // if the STA is associated to this AP
-          if ( (*indexAP)->GetMac() == addressOfTheAPwhereThisSTAis ) {
-            // modify the AMPDU value
-            ModifyAmpdu ((*indexSTA)->GetStaid(), newAmpduValue, 1);  // modify the AMPDU in the STA node
-            (*indexSTA)->SetMaxSizeAmpdu(newAmpduValue);              // update the data in the STA_record structure
+      // write the new AMPDU value to a file (it is written at the end of the file)
+      if ( mynameAMPDUFile != "" ) {
 
-            // Report this fact
-            if (verboseLevel > 0) {
-              std::cout << Simulator::Now ().GetSeconds() 
-                        << "\t[adjustAMPDU]"
-                        << "\t\tSTA #" << (*indexSTA)->GetStaid() 
-                        << "\tassociated to AP #" << GetAnAP_Id(addressOfTheAPwhereThisSTAis) 
-                        << "\twith MAC " << (*indexSTA)->GetMac()
-                        << "\tAMPDU of the STA set to " << newAmpduValue;
+        std::ofstream ofsAMPDU;
+        ofsAMPDU.open ( mynameAMPDUFile, std::ofstream::out | std::ofstream::app); // with "trunc" Any contents that existed in the file before it is open are discarded. with "app", all output operations happen at the end of the file, appending to its existing contents
 
-              if ((*indexSTA)->Gettypeofapplication () == 3)
-                std::cout << "\t TCP upload";
-              else if ((*indexSTA)->Gettypeofapplication () == 4)
-                std::cout << "\t TCP download";
-              else
-                std::cout << "\t UDP Video download";
+        ofsAMPDU << GetAnAP_Id((*indexAP)->GetMac()) << "\t"; // write the ID of the AP to the file
+        ofsAMPDU << "AP\t";                                   // type of node
+        ofsAMPDU << "-\t";                                    // It is not associated to any AP, since it is an AP
+        ofsAMPDU << newAmpduValue << "\t";                    // new value of the AMPDU
+        ofsAMPDU << Simulator::Now().GetSeconds() << "\n";    // timestamp
+      }
 
-              std::cout << "\n";              
+
+      // Modify the AMPDU value of the STAs associated to the AP which are NOT running VoIP (VoIP STAs never use aggregation)
+      for (STA_recordVector::const_iterator indexSTA = assoc_vector.begin (); indexSTA != assoc_vector.end (); indexSTA++) {
+
+        // if the STA is associated
+        if ((*indexSTA)->GetAssoc()) {
+
+          // if the STA is NOT running VoIP
+          if ( ( (*indexSTA)->Gettypeofapplication () > 2) ) {
+
+            // auxiliar string
+            std::ostringstream auxString;
+            // create a string with the MAC
+            auxString << "02-06-" << (*indexSTA)->GetMac();
+            std::string addressOfTheAPwhereThisSTAis = auxString.str();
+
+            // if the STA is associated to this AP
+            if ( (*indexAP)->GetMac() == addressOfTheAPwhereThisSTAis ) {
+              // modify the AMPDU value
+              ModifyAmpdu ((*indexSTA)->GetStaid(), newAmpduValue, 1);  // modify the AMPDU in the STA node
+              (*indexSTA)->SetMaxSizeAmpdu(newAmpduValue);              // update the data in the STA_record structure
+
+              // Report this modification
+              if (verboseLevel > 0) {
+                std::cout << Simulator::Now ().GetSeconds() 
+                          << "\t[adjustAMPDU]"
+                          << "\t\tSTA #" << (*indexSTA)->GetStaid() 
+                          << "\tassociated to AP #" << GetAnAP_Id(addressOfTheAPwhereThisSTAis) 
+                          << "\twith MAC " << (*indexSTA)->GetMac()
+                          << "\tAMPDU of the STA set to " << newAmpduValue;
+
+                if ((*indexSTA)->Gettypeofapplication () == 3)
+                  std::cout << "\t TCP upload";
+                else if ((*indexSTA)->Gettypeofapplication () == 4)
+                  std::cout << "\t TCP download";
+                else
+                  std::cout << "\t UDP Video download";
+
+                std::cout << "\n";              
+              }
+
+              // write the new AMPDU value to a file (it is written at the end of the file)
+              if ( mynameAMPDUFile != "" ) {
+
+                std::ofstream ofsAMPDU;
+                ofsAMPDU.open ( mynameAMPDUFile, std::ofstream::out | std::ofstream::app); // with "trunc" Any contents that existed in the file before it is open are discarded. with "app", all output operations happen at the end of the file, appending to its existing contents
+
+                ofsAMPDU << (*indexSTA)->GetStaid() << "\t"; // write the ID of the AP to the file
+                ofsAMPDU << "STA ";
+                if ((*indexSTA)->Gettypeofapplication () == 3)
+                  std::cout << "TCP upload";
+                else if ((*indexSTA)->Gettypeofapplication () == 4)
+                  std::cout << "TCP download";
+                else
+                  std::cout << "UDP Video download";
+                ofsAMPDU << "\t";
+                ofsAMPDU << GetAnAP_Id((*indexAP)->GetMac()) << "\t";
+                ofsAMPDU << newAmpduValue << "\t";                    // new value of the AMPDU
+                ofsAMPDU << Simulator::Now().GetSeconds() << "\n";    // timestamp
+              }
             }
           }
         }
@@ -1860,9 +1916,9 @@ void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
                         myVoIPStatistics,
                         verboseLevel,
                         timeInterval,
-                        numberofAPs,
                         latencyBudget,
-                        maxAmpduSize);
+                        maxAmpduSize,
+                        mynameAMPDUFile);
 }
 
 
@@ -1963,10 +2019,12 @@ void saveStats (  std::string mynameKPIFile,
 
     for (uint16_t k = 0; k < numberVoIPuploadFlows + numberVoIPdownloadFlows; k++) {
       ofs << k << "\t";
+
       if ( k < numberVoIPdownloadFlows )
         ofs << "VoIP_upload\t";
       else
         ofs << "VoIP_download\t";
+
       ofs << myVoIPStatistics[k].lastPeriodDelay << "\t"
           << myVoIPStatistics[k].lastPeriodJitter << "\t"
           << myVoIPStatistics[k].lastPeriodRxPackets << "\t"
@@ -2054,9 +2112,9 @@ int main (int argc, char *argv[]) {
   //   IEEE 802.11 QoS data
   //     QoS Control
   uint32_t prioritiesEnabled = 0;
-  uint8_t VoIpPriorityLevel = 0xc0;
-  uint8_t TcpPriorityLevel = 0x00;
-  uint8_t VideoPriorityLevel = 0x00;  // FIXME check if this is what we want
+  uint8_t VoIpPriorityLevel = 0xc0;   // corresponds to 1100 0000 (AC_VO)
+  uint8_t TcpPriorityLevel = 0x00;    // corresponds to 0000 0000 (AC_BK)
+  uint8_t VideoPriorityLevel = 0x80;  // corresponds to 1000 0000 (AC_VI) FIXME check if this is what we want
 
   uint32_t RtsCtsThreshold = 999999;  // RTS/CTS is disabled by defalult
 
@@ -4111,6 +4169,26 @@ int main (int argc, char *argv[]) {
         << "numlostPackets" << "\t"
         << "timestamp" << "\n";
 
+
+    // Write the values of the AMPDU to a file
+    // create a string with the name of the output file
+    std::ostringstream nameAMPDUFile;
+
+    nameAMPDUFile << outputFileName
+                  << "_"
+                  << outputFileSurname
+                  << "_AMPDUvalues.txt";
+
+    std::ofstream ofsAMPDU;
+    ofsAMPDU.open ( nameAMPDUFile.str(), std::ofstream::out | std::ofstream::trunc); // with "trunc" Any contents that existed in the file before it is open are discarded. with "app", all output operations happen at the end of the file, appending to its existing contents
+
+    // write the first line in the file (includes the titles of the columns)
+    ofsAMPDU  << "ID" << "\t"
+              << "type" << "\t"
+              << "associated to AP\t"
+              << "AMPDU set to [bytes]" << "\t"
+              << "timestamp" << "\n";
+
     // I schedule this after the first time when statistics have been obtained
     Simulator::Schedule(  Seconds(initial_time_interval + timeMonitorDelay + 0.0001),
                           &saveStats,
@@ -4127,9 +4205,10 @@ int main (int argc, char *argv[]) {
                           myVoIPStatistics,
                           verboseLevel,
                           timeMonitorDelay,
-                          number_of_APs,
+                          //number_of_APs,
                           latencyBudget,
-                          maxAmpduSize);
+                          maxAmpduSize,
+                          nameAMPDUFile.str());
   }
 
 
