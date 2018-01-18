@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v164
+ * v165
  * Developed and tested for ns-3.26, although the simulation crashes in some cases. One example:
  *    - more than one AP
  *    - set the RtsCtsThreshold below 48000
@@ -1836,11 +1836,11 @@ void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
         std::ofstream ofsAMPDU;
         ofsAMPDU.open ( mynameAMPDUFile, std::ofstream::out | std::ofstream::app); // with "trunc" Any contents that existed in the file before it is open are discarded. with "app", all output operations happen at the end of the file, appending to its existing contents
 
+        ofsAMPDU << Simulator::Now().GetSeconds() << "\t";    // timestamp
         ofsAMPDU << GetAnAP_Id((*indexAP)->GetMac()) << "\t"; // write the ID of the AP to the file
         ofsAMPDU << "AP\t";                                   // type of node
         ofsAMPDU << "-\t";                                    // It is not associated to any AP, since it is an AP
-        ofsAMPDU << newAmpduValue << "\t";                    // new value of the AMPDU
-        ofsAMPDU << Simulator::Now().GetSeconds() << "\n";    // timestamp
+        ofsAMPDU << newAmpduValue << "\n";                    // new value of the AMPDU
       }
 
 
@@ -1890,6 +1890,7 @@ void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
                 std::ofstream ofsAMPDU;
                 ofsAMPDU.open ( mynameAMPDUFile, std::ofstream::out | std::ofstream::app); // with "trunc" Any contents that existed in the file before it is open are discarded. with "app", all output operations happen at the end of the file, appending to its existing contents
 
+                ofsAMPDU << Simulator::Now().GetSeconds() << "\t";    // timestamp
                 ofsAMPDU << (*indexSTA)->GetStaid() << "\t"; // write the ID of the AP to the file
                 ofsAMPDU << "STA ";
                 if ((*indexSTA)->Gettypeofapplication () == 3)
@@ -1900,8 +1901,7 @@ void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
                   std::cout << "UDP Video download";
                 ofsAMPDU << "\t";
                 ofsAMPDU << GetAnAP_Id((*indexAP)->GetMac()) << "\t";
-                ofsAMPDU << newAmpduValue << "\t";                    // new value of the AMPDU
-                ofsAMPDU << Simulator::Now().GetSeconds() << "\n";    // timestamp
+                ofsAMPDU << newAmpduValue << "\n";                    // new value of the AMPDU
               }
             }
           }
@@ -2018,7 +2018,9 @@ void saveStats (  std::string mynameKPIFile,
     ofs.open ( mynameKPIFile, std::ofstream::out | std::ofstream::app); // with "trunc" Any contents that existed in the file before it is open are discarded. with "app", all output operations happen at the end of the file, appending to its existing contents
 
     for (uint16_t k = 0; k < numberVoIPuploadFlows + numberVoIPdownloadFlows; k++) {
-      ofs << k << "\t";
+      ofs << Simulator::Now().GetSeconds() << "\t"; // timestamp
+
+      ofs << k << "\t"; // number of the flow
 
       if ( k < numberVoIPdownloadFlows )
         ofs << "VoIP_upload\t";
@@ -2028,8 +2030,7 @@ void saveStats (  std::string mynameKPIFile,
       ofs << myVoIPStatistics[k].lastPeriodDelay << "\t"
           << myVoIPStatistics[k].lastPeriodJitter << "\t"
           << myVoIPStatistics[k].lastPeriodRxPackets << "\t"
-          << myVoIPStatistics[k].lastPeriodLostPackets << "\t"
-          << Simulator::Now().GetSeconds() << "\n";
+          << myVoIPStatistics[k].lastPeriodLostPackets << "\n";
     }
   }
   // Reschedule the writing
@@ -4161,13 +4162,13 @@ int main (int argc, char *argv[]) {
     ofs.open ( nameKPIFile.str(), std::ofstream::out | std::ofstream::trunc); // with "trunc" Any contents that existed in the file before it is open are discarded. with "app", all output operations happen at the end of the file, appending to its existing contents
 
     // write the first line in the file (includes the titles of the columns)
-    ofs << "ID" << "\t"
+    ofs << "timestamp" << "\t"
+        << "ID" << "\t"
         << "application" << "\t"
         << "delay" << "\t"
         << "jitter" << "\t" 
         << "numRxPackets" << "\t"
-        << "numlostPackets" << "\t"
-        << "timestamp" << "\n";
+        << "numlostPackets" << "\n";
 
 
     // Write the values of the AMPDU to a file
@@ -4183,11 +4184,12 @@ int main (int argc, char *argv[]) {
     ofsAMPDU.open ( nameAMPDUFile.str(), std::ofstream::out | std::ofstream::trunc); // with "trunc" Any contents that existed in the file before it is open are discarded. with "app", all output operations happen at the end of the file, appending to its existing contents
 
     // write the first line in the file (includes the titles of the columns)
-    ofsAMPDU  << "ID" << "\t"
+    ofsAMPDU  << "timestamp" << "\t"
+              << "ID" << "\t"
               << "type" << "\t"
               << "associated to AP\t"
-              << "AMPDU set to [bytes]" << "\t"
-              << "timestamp" << "\n";
+              << "AMPDU set to [bytes]" << "\n";
+
 
     // I schedule this after the first time when statistics have been obtained
     Simulator::Schedule(  Seconds(initial_time_interval + timeMonitorDelay + 0.0001),
