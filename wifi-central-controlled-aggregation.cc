@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v166
+ * v167
  * Developed and tested for ns-3.26, although the simulation crashes in some cases. One example:
  *    - more than one AP
  *    - set the RtsCtsThreshold below 48000
@@ -1689,7 +1689,8 @@ FlowMonitorHelper flowmon;  // FIXME avoid this global variable
 
 
 // Struct for storing the statistics of the VoIP flows
-struct VoIPStatistics {
+struct FlowStatistics {
+  uint32_t typeOfFlow; // 0: Not filled; 1: VoIP upload; 2: VoIP download; 3: non VoIP
   double acumDelay;
   double acumJitter;
   uint32_t acumRxPackets;
@@ -1704,7 +1705,7 @@ struct VoIPStatistics {
 
 
 // Dynamically adjust the size of the AMPDU
-void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
+void adjustAMPDU (FlowStatistics* myFlowStatistics,
                   uint32_t verboseLevel,
                   double timeInterval,
                   double latencyBudget,
@@ -1722,16 +1723,16 @@ void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
                 << " Channel " << uint16_t((*indexAP)->GetWirelessChannel())
                 << std::endl;
 
-    // find the highest latency of all the STAs associated to that AP
+    // find the highest latency of all the VoIP STAs associated to that AP
     double highestLatencyThisAP = 0.0;
 
     for (STA_recordVector::const_iterator indexSTA = assoc_vector.begin (); indexSTA != assoc_vector.end (); indexSTA++) {
 
-      // if the STA is associated
+      // check if the STA is associated to an AP
       if ((*indexSTA)->GetAssoc()) {
 
-        // if the STA is running VoIP (typeofapplication 1 or 2)
-        if ( ( (*indexSTA)->Gettypeofapplication () ==1) || ( (*indexSTA)->Gettypeofapplication () ==2) ) {
+        // check if the STA is running VoIP (typeofapplication 1 or 2)
+        if ( ( (*indexSTA)->Gettypeofapplication () == 1) || ( (*indexSTA)->Gettypeofapplication () == 2) ) {
 
           // auxiliar string
           std::ostringstream auxString;
@@ -1739,7 +1740,7 @@ void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
           auxString << "02-06-" << (*indexSTA)->GetMac();
           std::string addressOfTheAPwhereThisSTAis = auxString.str();
 
-          // if the STA is associated to this AP
+          // check if the STA is associated to this AP
           if ( (*indexAP)->GetMac() == addressOfTheAPwhereThisSTAis ) {
 
             if (verboseLevel > 0) {
@@ -1754,10 +1755,10 @@ void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
               else
                 std::cout << "\t VoIP download";
 
-              // the first STA is created after the last AP. Therefore, (*indexSTA)->GetStaid() - AP_vector.size() is 0 for the first VoIP STA
-              // isnan checks if the value is not a number
-              if (!isnan(myVoIPStatistics[ (*indexSTA)->GetStaid() - AP_vector.size() ].lastIntervalDelay))
-                std::cout << "\tDelay: " << myVoIPStatistics[ (*indexSTA)->GetStaid() - AP_vector.size() ].lastIntervalDelay 
+              // the first STA is created after the last AP. Therefore, '(*indexSTA)->GetStaid() - AP_vector.size()' is '0' for the first VoIP STA
+              // 'isnan' checks if the value is not a number
+              if (!isnan(myFlowStatistics[ (*indexSTA)->GetStaid() - AP_vector.size() ].lastIntervalDelay))
+                std::cout << "\tDelay: " << myFlowStatistics[ (*indexSTA)->GetStaid() - AP_vector.size() ].lastIntervalDelay 
                           //<< "\t (*indexSTA)->GetStaid()  - AP_vector.size() is " << (*indexSTA)->GetStaid() - AP_vector.size()
                           << std::endl;
               else 
@@ -1766,10 +1767,10 @@ void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
                           << std::endl;
             }
 
-            if (  myVoIPStatistics[ (*indexSTA)->GetStaid() - AP_vector.size() ].lastIntervalDelay > highestLatencyThisAP && 
-                  !isnan(myVoIPStatistics[ (*indexSTA)->GetStaid() - AP_vector.size() ].lastIntervalDelay)) // isnan checks if the value is not a number
+            if (  myFlowStatistics[ (*indexSTA)->GetStaid() - AP_vector.size() ].lastIntervalDelay > highestLatencyThisAP && 
+                  !isnan(myFlowStatistics[ (*indexSTA)->GetStaid() - AP_vector.size() ].lastIntervalDelay))
 
-              highestLatencyThisAP = myVoIPStatistics[ (*indexSTA)->GetStaid() - AP_vector.size() ].lastIntervalDelay;
+              highestLatencyThisAP = myFlowStatistics[ (*indexSTA)->GetStaid() - AP_vector.size() ].lastIntervalDelay;
           }
         }
       }
@@ -1805,7 +1806,7 @@ void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
     }
 
 
-    // Check if the AMPDU has been modified
+    // Check if the AMPDU has to be modified or not
     if (newAmpduValue == oldAmpduValue) {
 
       // Report that the AMPDU has not been modified
@@ -1813,7 +1814,7 @@ void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
         std::cout << Simulator::Now ().GetSeconds()
                   << "\t[adjustAMPDU]"
                   //<< "\tAP #" << GetAnAP_Id((*indexAP)->GetMac())
-                  << "\t\tHighest Latency: " << highestLatencyThisAP
+                  << "\t\tHighest Latency: " << highestLatencyThisAP << "s (limit " << latencyBudget << " s)"
                   //<< "\twith MAC: " << (*indexAP)->GetMac() 
                   << "\tAMPDU of the AP not changed (" << (*indexAP)->GetMaxSizeAmpdu() << ")"
                   << std::endl;
@@ -1883,7 +1884,7 @@ void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
                   std::cout << "\t TCP upload";
                 else if ((*indexSTA)->Gettypeofapplication () == 4)
                   std::cout << "\t TCP download";
-                else
+                else if ((*indexSTA)->Gettypeofapplication () == 5)
                   std::cout << "\t UDP Video download";
 
                 std::cout << "\n";              
@@ -1896,15 +1897,8 @@ void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
                 ofsAMPDU.open ( mynameAMPDUFile, std::ofstream::out | std::ofstream::app); // with "trunc" Any contents that existed in the file before it is open are discarded. with "app", all output operations happen at the end of the file, appending to its existing contents
 
                 ofsAMPDU << Simulator::Now().GetSeconds() << "\t";    // timestamp
-                ofsAMPDU << (*indexSTA)->GetStaid() << "\t"; // write the ID of the AP to the file
-                ofsAMPDU << "STA ";
-                if ((*indexSTA)->Gettypeofapplication () == 3)
-                  std::cout << "TCP upload";
-                else if ((*indexSTA)->Gettypeofapplication () == 4)
-                  std::cout << "TCP download";
-                else
-                  std::cout << "UDP Video download";
-                ofsAMPDU << "\t";
+                ofsAMPDU << (*indexSTA)->GetStaid() << "\t";          // ID of the AP
+                ofsAMPDU << "STA \t";
                 ofsAMPDU << GetAnAP_Id((*indexAP)->GetMac()) << "\t";
                 ofsAMPDU << newAmpduValue << "\n";                    // new value of the AMPDU
               }
@@ -1918,7 +1912,7 @@ void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
   // Reschedule the calculation
   Simulator::Schedule(  Seconds(timeInterval),
                         &adjustAMPDU,
-                        myVoIPStatistics,
+                        myFlowStatistics,
                         verboseLevel,
                         timeInterval,
                         latencyBudget,
@@ -1929,7 +1923,7 @@ void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
 
 // Periodically obtain the statistics of the VoIP flows, using Flowmonitor
 void obtainStats (Ptr<FlowMonitor> monitor/*, FlowMonitorHelper flowmon*/, 
-                  VoIPStatistics* myVoIPStatistics,
+                  FlowStatistics* myFlowStatistics,
                   uint16_t numberVoIPuploadFlows,
                   uint16_t numberVoIPdownloadFlows,
                   uint32_t verboseLevel,
@@ -1941,73 +1935,76 @@ void obtainStats (Ptr<FlowMonitor> monitor/*, FlowMonitorHelper flowmon*/,
   // for each flow
   std::map<FlowId, FlowMonitor::FlowStats> stats = monitor->GetFlowStats ();
   uint16_t k = 0;
-  for (std::map<FlowId, FlowMonitor::FlowStats>::const_iterator i = stats.begin (); i != stats.end (); ++i)
-  {
+  for (std::map<FlowId, FlowMonitor::FlowStats>::const_iterator i = stats.begin (); i != stats.end (); ++i) {
+
     Ipv4FlowClassifier::FiveTuple t = classifier->FindFlow (i->first);
 
-    // VoIP flows
-    if (  (t.destinationPort >= INITIALPORT ) && 
-          (t.destinationPort < INITIALPORT + numberVoIPuploadFlows + numberVoIPdownloadFlows )) {
+    // fill the 'typeOfFlow' field if it is empty
+    if (myFlowStatistics[k].typeOfFlow == 0) {
+      if ( t.destinationPort < INITIALPORT + numberVoIPuploadFlows )
+        myFlowStatistics[k].typeOfFlow = 1;
+      else if (t.destinationPort < INITIALPORT + numberVoIPuploadFlows + numberVoIPdownloadFlows )
+        myFlowStatistics[k].typeOfFlow = 2;
+      else
+        myFlowStatistics[k].typeOfFlow = 3;   // non VoIP
+    }
 
-      // obtain the average latency and jitter only in the last interval
-      uint32_t RxPacketsThisInterval = i->second.rxPackets - myVoIPStatistics[k].acumRxPackets;
+    // obtain the average latency and jitter only in the last interval
+    uint32_t RxPacketsThisInterval = i->second.rxPackets - myFlowStatistics[k].acumRxPackets;
+    uint32_t lostPacketsThisInterval = i->second.lostPackets - myFlowStatistics[k].acumLostPackets;
+    uint32_t RxBytesThisInterval = i->second.rxBytes - myFlowStatistics[k].acumRxBytes;
+    double averageLatencyThisInterval = (i->second.delaySum.GetSeconds() - myFlowStatistics[k].acumDelay) / RxPacketsThisInterval;
+    double averageJitterThisInterval = (i->second.jitterSum.GetSeconds() - myFlowStatistics[k].acumJitter) / RxPacketsThisInterval;
 
-      uint32_t lostPacketsThisInterval = i->second.lostPackets - myVoIPStatistics[k].acumLostPackets;
+    if (verboseLevel > 1) {
 
-      uint32_t RxBytesThisInterval = i->second.rxBytes - myVoIPStatistics[k].acumRxBytes;
+      std::cout << Simulator::Now().GetSeconds();
+      std::cout << "\t[obtainStats] flow " << i->first;
+      std::cout << "\t(type "<< myFlowStatistics[k].typeOfFlow << ")"; // type of flow
+      if (t.destinationPort < INITIALPORT + numberVoIPuploadFlows )
+        std::cout << "\tVoIP upload\n";
+      else if (t.destinationPort < INITIALPORT + numberVoIPuploadFlows + numberVoIPdownloadFlows )
+        std::cout << "\tVoIP download\n";
+      else
+        std::cout << "\tNon VoIP\n";
 
-      double averageLatencyThisInterval = (i->second.delaySum.GetSeconds() - myVoIPStatistics[k].acumDelay) / RxPacketsThisInterval;
-
-      double averageJitterThisInterval = (i->second.jitterSum.GetSeconds() - myVoIPStatistics[k].acumJitter) / RxPacketsThisInterval;
-
-      if (verboseLevel > 1) {
-
-        std::cout << Simulator::Now().GetSeconds();
-        std::cout << "\t[obtainStats] flow " << i->first;
-        if (t.destinationPort < INITIALPORT + numberVoIPuploadFlows )
-          std::cout << "\tVoIP upload\n";
-        else
-          std::cout << "\tVoIP download\n";
-        if (verboseLevel > 1) {
-          std::cout << "\t\t\tAcum delay at the beginning of the period: "<< myVoIPStatistics[k].acumDelay << " [s]\n";
-          std::cout << "\t\t\tAcum delay at the end of the period: " << i->second.delaySum.GetSeconds() << " [s]\n";
-          std::cout << "\t\t\tAcum number of Rx packets: " << i->second.rxPackets << "\n";
-          std::cout << "\t\t\tAcum number of Rx bytes: " << i->second.rxBytes << "\n";
-          std::cout << "\t\t\tAcum number of lost packets: " << i->second.lostPackets << "\n"; // FIXME
-          std::cout << "\t\t\tAcum throughput: " << i->second.rxBytes * 8.0 / (Simulator::Now().GetSeconds() - INITIALTIMEINTERVAL) << "  [bps]\n";
-          //The previous line does not work correctly. If you add 'monitor->CheckForLostPackets (0.01)' at the beginning of the function, the number
-          //of lost packets seems to be higher. However, the obtained number does not correspond to the final number
-        }
-        std::cout << "\t\t\tAverage delay this period: " << averageLatencyThisInterval << " [s]\n";
-        std::cout << "\t\t\tAverage jitter this period: " << averageJitterThisInterval << " [s]\n";
-        std::cout << "\t\t\tNumber of Rx packets this period: " << RxPacketsThisInterval << "\n";
-        std::cout << "\t\t\tNumber of Rx bytes this period: " << RxBytesThisInterval << "\n";
-        std::cout << "\t\t\tNumber of lost packets this period: " << lostPacketsThisInterval << "\n"; // FIXME: This does not work correctly
-        std::cout << "\t\t\tThroughput this period: " << RxBytesThisInterval * 8.0 / timeInterval << "  [bps]\n";
-        //std::cout << "\tt\tk= " << k << "\n";
+      if (verboseLevel > 2) {
+        std::cout << "\t\t\tAcum delay at the beginning of the period: "<< myFlowStatistics[k].acumDelay << " [s]\n";
+        std::cout << "\t\t\tAcum delay at the end of the period: " << i->second.delaySum.GetSeconds() << " [s]\n";
+        std::cout << "\t\t\tAcum number of Rx packets: " << i->second.rxPackets << "\n";
+        std::cout << "\t\t\tAcum number of Rx bytes: " << i->second.rxBytes << "\n";
+        std::cout << "\t\t\tAcum number of lost packets: " << i->second.lostPackets << "\n"; // FIXME
+        //The previous line does not work correctly. If you add 'monitor->CheckForLostPackets (0.01)' at the beginning of the function, the number
+        //of lost packets seems to be higher. However, the obtained number does not correspond to the final number
       }
+      std::cout << "\t\t\tAverage delay this period: " << averageLatencyThisInterval << " [s]\n";
+      std::cout << "\t\t\tAverage jitter this period: " << averageJitterThisInterval << " [s]\n";
+      std::cout << "\t\t\tNumber of Rx packets this period: " << RxPacketsThisInterval << "\n";
+      std::cout << "\t\t\tNumber of Rx bytes this period: " << RxBytesThisInterval << "\n";
+      std::cout << "\t\t\tNumber of lost packets this period: " << lostPacketsThisInterval << "\n"; // FIXME: This does not work correctly
+      //std::cout << "\tt\tk= " << k << "\n";
+    }
 
-      // update the values of the statistics
-      myVoIPStatistics[k].acumDelay = i->second.delaySum.GetSeconds();
-      myVoIPStatistics[k].acumJitter = i->second.jitterSum.GetSeconds();
-      myVoIPStatistics[k].acumRxPackets = i->second.rxPackets;
-      myVoIPStatistics[k].acumLostPackets = i->second.lostPackets;
-      myVoIPStatistics[k].acumRxBytes = i->second.rxBytes;
-      myVoIPStatistics[k].lastIntervalDelay = averageLatencyThisInterval;
-      myVoIPStatistics[k].lastIntervalJitter = averageJitterThisInterval;
-      myVoIPStatistics[k].lastIntervalRxPackets = RxPacketsThisInterval;
-      myVoIPStatistics[k].lastIntervalLostPackets = lostPacketsThisInterval;
-      myVoIPStatistics[k].lastIntervalRxBytes = RxBytesThisInterval;
+    // update the values of the statistics
+    myFlowStatistics[k].acumDelay = i->second.delaySum.GetSeconds();
+    myFlowStatistics[k].acumJitter = i->second.jitterSum.GetSeconds();
+    myFlowStatistics[k].acumRxPackets = i->second.rxPackets;
+    myFlowStatistics[k].acumLostPackets = i->second.lostPackets;
+    myFlowStatistics[k].acumRxBytes = i->second.rxBytes;
+    myFlowStatistics[k].lastIntervalDelay = averageLatencyThisInterval;
+    myFlowStatistics[k].lastIntervalJitter = averageJitterThisInterval;
+    myFlowStatistics[k].lastIntervalRxPackets = RxPacketsThisInterval;
+    myFlowStatistics[k].lastIntervalLostPackets = lostPacketsThisInterval;
+    myFlowStatistics[k].lastIntervalRxBytes = RxBytesThisInterval;
 
-      k ++;
-    } 
+    k ++;
   }
 
   // Reschedule the calculation
   Simulator::Schedule(  Seconds(timeInterval),
                         &obtainStats,
                         monitor/*, flowmon*/, 
-                        myVoIPStatistics,
+                        myFlowStatistics,
                         numberVoIPuploadFlows,
                         numberVoIPdownloadFlows,
                         verboseLevel,
@@ -2017,43 +2014,43 @@ void obtainStats (Ptr<FlowMonitor> monitor/*, FlowMonitorHelper flowmon*/,
 
 // Periodically obtain the statistics of the VoIP flows, using Flowmonitor
 void saveStats (  std::string mynameKPIFile,
-                  VoIPStatistics* myVoIPStatistics,
-                  uint16_t numberVoIPuploadFlows,
-                  uint16_t numberVoIPdownloadFlows,
+                  FlowStatistics* myFlowStatistics,
+                  uint16_t numberOfFlows,
                   uint32_t verboseLevel,
                   double timeInterval)  //Interval between monitoring moments
 {
-
   // print the results to a file (they are written at the end of the file)
   if ( mynameKPIFile != "" ) {
 
     std::ofstream ofs;
     ofs.open ( mynameKPIFile, std::ofstream::out | std::ofstream::app); // with "trunc" Any contents that existed in the file before it is open are discarded. with "app", all output operations happen at the end of the file, appending to its existing contents
 
-    for (uint16_t k = 0; k < numberVoIPuploadFlows + numberVoIPdownloadFlows; k++) {
+    //for (uint16_t k = 0; k < numberVoIPuploadFlows + numberVoIPdownloadFlows; k++) {
+    for (uint16_t k = 0; k < numberOfFlows; k++) {
       ofs << Simulator::Now().GetSeconds() << "\t"; // timestamp
-
       ofs << k << "\t"; // number of the flow
 
-      if ( k < numberVoIPdownloadFlows )
+      if ( myFlowStatistics[k].typeOfFlow == 1 ) {
         ofs << "VoIP_upload\t";
-      else
-        ofs << "VoIP_download\t";
+      } else if ( myFlowStatistics[k].typeOfFlow == 2 ) {
+        ofs << "VoIP_download\t";    
+      } else if ( myFlowStatistics[k].typeOfFlow == 3 ) {
+        ofs << "non_VoIP\t";
+      } 
 
-      ofs << myVoIPStatistics[k].lastIntervalDelay << "\t"
-          << myVoIPStatistics[k].lastIntervalJitter << "\t"
-          << myVoIPStatistics[k].lastIntervalRxPackets << "\t"
-          << myVoIPStatistics[k].lastIntervalLostPackets << "\t"
-          << myVoIPStatistics[k].lastIntervalRxBytes * 8.0 / timeInterval << "\n";
+      ofs << myFlowStatistics[k].lastIntervalDelay << "\t"
+          << myFlowStatistics[k].lastIntervalJitter << "\t"
+          << myFlowStatistics[k].lastIntervalRxPackets << "\t"
+          << myFlowStatistics[k].lastIntervalLostPackets << "\t"
     }
   }
+
   // Reschedule the writing
   Simulator::Schedule(  Seconds(timeInterval),
                         &saveStats,
                         mynameKPIFile,
-                        myVoIPStatistics,
-                        numberVoIPuploadFlows,
-                        numberVoIPdownloadFlows,
+                        myFlowStatistics,
+                        numberOfFlows,
                         verboseLevel,
                         timeInterval);
 }
@@ -2462,16 +2459,21 @@ int main (int argc, char *argv[]) {
   }
 
 
-  // Store the flowmonitor statistics of the VoIP flows
-  struct VoIPStatistics myVoIPStatistics[numberVoIPupload + numberVoIPdownload];
+  // Variable to store the flowmonitor statistics of the flows during the simulation
+  // VoIP applications generate 1 flow
+  // TCP applications generate 2 flows: 1 for data and 1 for ACKs
+  // video applications generate 1 flow
+  uint32_t numberOfFlows = numberVoIPupload + numberVoIPdownload + (2*numberTCPupload) + (2*numberTCPdownload) + numberVideoDownload;
+  struct FlowStatistics myFlowStatistics[numberOfFlows];
 
   // Initialize to 0
-  for (uint16_t i=0; i < numberVoIPupload + numberVoIPdownload; i++) {
-    myVoIPStatistics[i].acumDelay = 0.0;
-    myVoIPStatistics[i].acumJitter = 0.0;
-    myVoIPStatistics[i].acumRxPackets = 0;
-    myVoIPStatistics[i].acumRxBytes = 0;
-    myVoIPStatistics[i].acumLostPackets = 0;
+  for (uint16_t i = 0 ; i < numberOfFlows; i++) {
+    myFlowStatistics[i].typeOfFlow = 0;
+    myFlowStatistics[i].acumDelay = 0.0;
+    myFlowStatistics[i].acumJitter = 0.0;
+    myFlowStatistics[i].acumRxPackets = 0;
+    myFlowStatistics[i].acumRxBytes = 0;
+    myFlowStatistics[i].acumLostPackets = 0;
   }
 
 
@@ -4157,7 +4159,7 @@ int main (int argc, char *argv[]) {
                           &obtainStats,
                           monitor
                           /*, flowmon*/, // FIXME Avoid the use of a global variable 'flowmon'
-                          myVoIPStatistics,
+                          myFlowStatistics,
                           numberVoIPupload,
                           numberVoIPdownload,
                           verboseLevel,
@@ -4176,11 +4178,11 @@ int main (int argc, char *argv[]) {
     ofs.open ( nameKPIFile.str(), std::ofstream::out | std::ofstream::trunc); // with "trunc" Any contents that existed in the file before it is open are discarded. with "app", all output operations happen at the end of the file, appending to its existing contents
 
     // write the first line in the file (includes the titles of the columns)
-    ofs << "timestamp" << "\t"
+    ofs << "timestamp [s]" << "\t"
         << "ID" << "\t"
         << "application" << "\t"
-        << "delay" << "\t"
-        << "jitter" << "\t" 
+        << "delay [s]" << "\t"
+        << "jitter [s]" << "\t" 
         << "numRxPackets" << "\t"
         << "numlostPackets" << "\t"
         << "throughput [bps]" << "\n";
@@ -4210,19 +4212,17 @@ int main (int argc, char *argv[]) {
     Simulator::Schedule(  Seconds(INITIALTIMEINTERVAL + timeMonitorDelay + 0.0001),
                           &saveStats,
                           nameKPIFile.str(),
-                          myVoIPStatistics,
-                          numberVoIPupload,
-                          numberVoIPdownload,
+                          myFlowStatistics,
+                          numberOfFlows,
                           verboseLevel,
                           timeMonitorDelay);
 
     // Modify the AMPDU of the APs where there are VoIP flows
     Simulator::Schedule(  Seconds(INITIALTIMEINTERVAL + timeMonitorDelay + 0.0002),
                           &adjustAMPDU,
-                          myVoIPStatistics,
+                          myFlowStatistics,
                           verboseLevel,
                           timeMonitorDelay,
-                          //number_of_APs,
                           latencyBudget,
                           maxAmpduSize,
                           nameAMPDUFile.str());
