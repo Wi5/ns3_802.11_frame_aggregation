@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v165
+ * v166
  * Developed and tested for ns-3.26, although the simulation crashes in some cases. One example:
  *    - more than one AP
  *    - set the RtsCtsThreshold below 48000
@@ -148,7 +148,7 @@ Two possibilities:
 
 // When the default aggregation parameters are enabled, the
 // maximum A-MPDU size is the one defined by the standard, and the throughput is maximal.
-// When aggregation is limited, the thoughput is lower
+// When aggregation is limited, the throughput is lower
 //
 // Packets in this simulation can be marked with a QosTag so they
 // will be considered belonging to  different queues.
@@ -244,6 +244,8 @@ using namespace ns3;
 #define INITIALPORT 1000      // The value of the port for the first communication (probably VoIP upload)
 
 #define MTU 1500    // The value of the MTU of the packets
+
+#define INITIALTIMEINTERVAL 1.0 // time before the applications start (seconds). The same amount of time is added at the end
 
 // Define a log component
 NS_LOG_COMPONENT_DEFINE ("SimpleMpduAggregation");
@@ -1692,11 +1694,14 @@ struct VoIPStatistics {
   double acumJitter;
   uint32_t acumRxPackets;
   uint32_t acumLostPackets;
-  double lastPeriodDelay;
-  double lastPeriodJitter;
-  uint32_t lastPeriodRxPackets;
-  uint32_t lastPeriodLostPackets;
+  uint32_t acumRxBytes;
+  double lastIntervalDelay;
+  double lastIntervalJitter;
+  uint32_t lastIntervalRxPackets;
+  uint32_t lastIntervalLostPackets;
+  uint32_t lastIntervalRxBytes;
 };
+
 
 // Dynamically adjust the size of the AMPDU
 void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
@@ -1751,8 +1756,8 @@ void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
 
               // the first STA is created after the last AP. Therefore, (*indexSTA)->GetStaid() - AP_vector.size() is 0 for the first VoIP STA
               // isnan checks if the value is not a number
-              if (!isnan(myVoIPStatistics[ (*indexSTA)->GetStaid() - AP_vector.size() ].lastPeriodDelay))
-                std::cout << "\tDelay: " << myVoIPStatistics[ (*indexSTA)->GetStaid() - AP_vector.size() ].lastPeriodDelay 
+              if (!isnan(myVoIPStatistics[ (*indexSTA)->GetStaid() - AP_vector.size() ].lastIntervalDelay))
+                std::cout << "\tDelay: " << myVoIPStatistics[ (*indexSTA)->GetStaid() - AP_vector.size() ].lastIntervalDelay 
                           //<< "\t (*indexSTA)->GetStaid()  - AP_vector.size() is " << (*indexSTA)->GetStaid() - AP_vector.size()
                           << std::endl;
               else 
@@ -1761,10 +1766,10 @@ void adjustAMPDU (VoIPStatistics* myVoIPStatistics,
                           << std::endl;
             }
 
-            if (  myVoIPStatistics[ (*indexSTA)->GetStaid() - AP_vector.size() ].lastPeriodDelay > highestLatencyThisAP && 
-                  !isnan(myVoIPStatistics[ (*indexSTA)->GetStaid() - AP_vector.size() ].lastPeriodDelay)) // isnan checks if the value is not a number
+            if (  myVoIPStatistics[ (*indexSTA)->GetStaid() - AP_vector.size() ].lastIntervalDelay > highestLatencyThisAP && 
+                  !isnan(myVoIPStatistics[ (*indexSTA)->GetStaid() - AP_vector.size() ].lastIntervalDelay)) // isnan checks if the value is not a number
 
-              highestLatencyThisAP = myVoIPStatistics[ (*indexSTA)->GetStaid() - AP_vector.size() ].lastPeriodDelay;
+              highestLatencyThisAP = myVoIPStatistics[ (*indexSTA)->GetStaid() - AP_vector.size() ].lastIntervalDelay;
           }
         }
       }
@@ -1945,13 +1950,15 @@ void obtainStats (Ptr<FlowMonitor> monitor/*, FlowMonitorHelper flowmon*/,
           (t.destinationPort < INITIALPORT + numberVoIPuploadFlows + numberVoIPdownloadFlows )) {
 
       // obtain the average latency and jitter only in the last interval
-      uint32_t RxPackets = i->second.rxPackets - myVoIPStatistics[k].acumRxPackets;
+      uint32_t RxPacketsThisInterval = i->second.rxPackets - myVoIPStatistics[k].acumRxPackets;
 
-      uint32_t lostPackets = i->second.lostPackets - myVoIPStatistics[k].acumLostPackets;
+      uint32_t lostPacketsThisInterval = i->second.lostPackets - myVoIPStatistics[k].acumLostPackets;
 
-      double averageLatency = (i->second.delaySum.GetSeconds() - myVoIPStatistics[k].acumDelay) / RxPackets;
+      uint32_t RxBytesThisInterval = i->second.rxBytes - myVoIPStatistics[k].acumRxBytes;
 
-      double averageJitter = (i->second.jitterSum.GetSeconds() - myVoIPStatistics[k].acumJitter) / RxPackets;
+      double averageLatencyThisInterval = (i->second.delaySum.GetSeconds() - myVoIPStatistics[k].acumDelay) / RxPacketsThisInterval;
+
+      double averageJitterThisInterval = (i->second.jitterSum.GetSeconds() - myVoIPStatistics[k].acumJitter) / RxPacketsThisInterval;
 
       if (verboseLevel > 1) {
 
@@ -1962,17 +1969,21 @@ void obtainStats (Ptr<FlowMonitor> monitor/*, FlowMonitorHelper flowmon*/,
         else
           std::cout << "\tVoIP download\n";
         if (verboseLevel > 1) {
-          std::cout << "\t\t\tAcum delay at the beginning of the period: "<< myVoIPStatistics[k].acumDelay << "\n";
-          std::cout << "\t\t\tAcum delay at the end of the period: " << i->second.delaySum.GetSeconds() << "\n";
+          std::cout << "\t\t\tAcum delay at the beginning of the period: "<< myVoIPStatistics[k].acumDelay << " [s]\n";
+          std::cout << "\t\t\tAcum delay at the end of the period: " << i->second.delaySum.GetSeconds() << " [s]\n";
           std::cout << "\t\t\tAcum number of Rx packets: " << i->second.rxPackets << "\n";
+          std::cout << "\t\t\tAcum number of Rx bytes: " << i->second.rxBytes << "\n";
           std::cout << "\t\t\tAcum number of lost packets: " << i->second.lostPackets << "\n"; // FIXME
+          std::cout << "\t\t\tAcum throughput: " << i->second.rxBytes * 8.0 / (Simulator::Now().GetSeconds() - INITIALTIMEINTERVAL) << "  [bps]\n";
           //The previous line does not work correctly. If you add 'monitor->CheckForLostPackets (0.01)' at the beginning of the function, the number
           //of lost packets seems to be higher. However, the obtained number does not correspond to the final number
         }
-        std::cout << "\t\t\tAverage delay this period: " << averageLatency << "\n";
-        std::cout << "\t\t\tAverage jitter this period: " << averageJitter << "\n";
-        std::cout << "\t\t\tNumber of Rx packets this period: " << RxPackets << "\n";
-        std::cout << "\t\t\tNumber of lost packets this period: " << lostPackets << "\n"; // FIXME: This does not work correctly
+        std::cout << "\t\t\tAverage delay this period: " << averageLatencyThisInterval << " [s]\n";
+        std::cout << "\t\t\tAverage jitter this period: " << averageJitterThisInterval << " [s]\n";
+        std::cout << "\t\t\tNumber of Rx packets this period: " << RxPacketsThisInterval << "\n";
+        std::cout << "\t\t\tNumber of Rx bytes this period: " << RxBytesThisInterval << "\n";
+        std::cout << "\t\t\tNumber of lost packets this period: " << lostPacketsThisInterval << "\n"; // FIXME: This does not work correctly
+        std::cout << "\t\t\tThroughput this period: " << RxBytesThisInterval * 8.0 / timeInterval << "  [bps]\n";
         //std::cout << "\tt\tk= " << k << "\n";
       }
 
@@ -1981,10 +1992,12 @@ void obtainStats (Ptr<FlowMonitor> monitor/*, FlowMonitorHelper flowmon*/,
       myVoIPStatistics[k].acumJitter = i->second.jitterSum.GetSeconds();
       myVoIPStatistics[k].acumRxPackets = i->second.rxPackets;
       myVoIPStatistics[k].acumLostPackets = i->second.lostPackets;
-      myVoIPStatistics[k].lastPeriodDelay = averageLatency;
-      myVoIPStatistics[k].lastPeriodJitter = averageJitter;
-      myVoIPStatistics[k].lastPeriodRxPackets = RxPackets;
-      myVoIPStatistics[k].lastPeriodLostPackets = lostPackets;
+      myVoIPStatistics[k].acumRxBytes = i->second.rxBytes;
+      myVoIPStatistics[k].lastIntervalDelay = averageLatencyThisInterval;
+      myVoIPStatistics[k].lastIntervalJitter = averageJitterThisInterval;
+      myVoIPStatistics[k].lastIntervalRxPackets = RxPacketsThisInterval;
+      myVoIPStatistics[k].lastIntervalLostPackets = lostPacketsThisInterval;
+      myVoIPStatistics[k].lastIntervalRxBytes = RxBytesThisInterval;
 
       k ++;
     } 
@@ -2027,10 +2040,11 @@ void saveStats (  std::string mynameKPIFile,
       else
         ofs << "VoIP_download\t";
 
-      ofs << myVoIPStatistics[k].lastPeriodDelay << "\t"
-          << myVoIPStatistics[k].lastPeriodJitter << "\t"
-          << myVoIPStatistics[k].lastPeriodRxPackets << "\t"
-          << myVoIPStatistics[k].lastPeriodLostPackets << "\n";
+      ofs << myVoIPStatistics[k].lastIntervalDelay << "\t"
+          << myVoIPStatistics[k].lastIntervalJitter << "\t"
+          << myVoIPStatistics[k].lastIntervalRxPackets << "\t"
+          << myVoIPStatistics[k].lastIntervalLostPackets << "\t"
+          << myVoIPStatistics[k].lastIntervalRxBytes * 8.0 / timeInterval << "\n";
     }
   }
   // Reschedule the writing
@@ -2054,7 +2068,6 @@ int main (int argc, char *argv[]) {
   static double VoIPg729IPT = 0.02; // Time between g729a packets (50 pps)
 
   static uint16_t initial_port = INITIALPORT; // port to be used by the VoIP uplink application. Subsequent ones will be used by the other applications
-  static uint32_t initial_time_interval = 1.0; // time before the applications start (seconds). The same amount of time is added at the end
 
   static double x_position_first_AP = 0.0;
   static double y_position_first_AP = 0.0;
@@ -2457,6 +2470,7 @@ int main (int argc, char *argv[]) {
     myVoIPStatistics[i].acumDelay = 0.0;
     myVoIPStatistics[i].acumJitter = 0.0;
     myVoIPStatistics[i].acumRxPackets = 0;
+    myVoIPStatistics[i].acumRxBytes = 0;
     myVoIPStatistics[i].acumLostPackets = 0;
   }
 
@@ -2800,7 +2814,7 @@ int main (int argc, char *argv[]) {
   // Periodically report the positions of all the STAs
   if (verboseLevel > 2) {
     for (uint32_t j = 0; j < number_of_STAs; ++j) {
-      Simulator::Schedule (Seconds (initial_time_interval), &ReportPosition, staNodes.Get(j), number_of_APs + number_of_Servers + j , 1, verboseLevel, apNodes);
+      Simulator::Schedule (Seconds (INITIALTIMEINTERVAL), &ReportPosition, staNodes.Get(j), number_of_APs + number_of_Servers + j , 1, verboseLevel, apNodes);
     }
 
     // This makes a callback every time a STA changes its course
@@ -3644,7 +3658,7 @@ int main (int argc, char *argv[]) {
     }
 
     VoipUpServer.Start (Seconds (0.0));
-    VoipUpServer.Stop (Seconds (simulationTime + initial_time_interval));
+    VoipUpServer.Stop (Seconds (simulationTime + INITIALTIMEINTERVAL));
 
     // UdpClient runs in the STA, so I must create a UdpClient per STA
     UdpClientHelper myVoipUpClient;
@@ -3678,8 +3692,8 @@ int main (int argc, char *argv[]) {
     myVoipUpClient.SetAttribute ("PacketSize", UintegerValue ( VoIPg729PayoladSize ));
 
     VoipUpClient = myVoipUpClient.Install (staNodes.Get(i));
-    VoipUpClient.Start (Seconds (initial_time_interval));
-    VoipUpClient.Stop (Seconds (simulationTime + initial_time_interval));
+    VoipUpClient.Start (Seconds (INITIALTIMEINTERVAL));
+    VoipUpClient.Stop (Seconds (simulationTime + INITIALTIMEINTERVAL));
     if (verboseLevel > 0) {
       if (topology == 0) {
         std::cout << "Application VoIP upload   from STA    #" << staNodes.Get(i)->GetId()
@@ -3718,7 +3732,7 @@ int main (int argc, char *argv[]) {
     myVoipDownServer = UdpServerHelper(port);
     VoipDownServer = myVoipDownServer.Install (staNodes.Get(i));
     VoipDownServer.Start (Seconds (0.0));
-    VoipDownServer.Stop (Seconds (simulationTime + initial_time_interval));
+    VoipDownServer.Stop (Seconds (simulationTime + INITIALTIMEINTERVAL));
 
     // I must create a UdpClient per STA
     UdpClientHelper myVoipDownClient;
@@ -3750,8 +3764,8 @@ int main (int argc, char *argv[]) {
       VoipDownClient = myVoipDownClient.Install (serverNodes.Get (i));
     }
 
-    VoipDownClient.Start (Seconds (initial_time_interval));
-    VoipDownClient.Stop (Seconds (simulationTime + initial_time_interval));
+    VoipDownClient.Start (Seconds (INITIALTIMEINTERVAL));
+    VoipDownClient.Stop (Seconds (simulationTime + INITIALTIMEINTERVAL));
 
     if (verboseLevel > 0) {
       if (topology == 0) {
@@ -3880,10 +3894,10 @@ int main (int argc, char *argv[]) {
     port++;
   }
   PacketSinkTcpUp.Start (Seconds (0.0));
-  PacketSinkTcpUp.Stop (Seconds (simulationTime + initial_time_interval));
+  PacketSinkTcpUp.Stop (Seconds (simulationTime + INITIALTIMEINTERVAL));
 
-  BulkSendTcpUp.Start (Seconds (initial_time_interval));
-  BulkSendTcpUp.Stop (Seconds (simulationTime + initial_time_interval));
+  BulkSendTcpUp.Start (Seconds (INITIALTIMEINTERVAL));
+  BulkSendTcpUp.Stop (Seconds (simulationTime + INITIALTIMEINTERVAL));
 
 
   // TCP download
@@ -3907,7 +3921,7 @@ int main (int argc, char *argv[]) {
 
     PacketSinkTcpDown = myPacketSinkTcpDown.Install(staNodes.Get (i));
     PacketSinkTcpDown.Start (Seconds (0.0));
-    PacketSinkTcpDown.Stop (Seconds (simulationTime + initial_time_interval));
+    PacketSinkTcpDown.Stop (Seconds (simulationTime + INITIALTIMEINTERVAL));
 
     // Install a sender on the sender node
     InetSocketAddress destAddress (InetSocketAddress (staInterfaces[i].GetAddress(0), port ));
@@ -3949,8 +3963,8 @@ int main (int argc, char *argv[]) {
     port++;
   }
 
-  BulkSendTcpDown.Start (Seconds (initial_time_interval));
-  BulkSendTcpDown.Stop (Seconds (simulationTime + initial_time_interval));
+  BulkSendTcpDown.Start (Seconds (INITIALTIMEINTERVAL));
+  BulkSendTcpDown.Stop (Seconds (simulationTime + INITIALTIMEINTERVAL));
 
 
 
@@ -3977,7 +3991,7 @@ int main (int argc, char *argv[]) {
     myVideoDownServer = UdpServerHelper(port);
     VideoDownServer = myVideoDownServer.Install (staNodes.Get (i));
     VideoDownServer.Start (Seconds (0.0));
-    VideoDownServer.Stop (Seconds (simulationTime + initial_time_interval));
+    VideoDownServer.Stop (Seconds (simulationTime + INITIALTIMEINTERVAL));
 
     UdpTraceClientHelper myVideoDownClient;
     ApplicationContainer VideoDownClient;
@@ -4023,8 +4037,8 @@ int main (int argc, char *argv[]) {
       VideoDownClient = myVideoDownClient.Install (serverNodes.Get (i));
     }
 
-    VideoDownClient.Start (Seconds (initial_time_interval));
-    VideoDownClient.Stop (Seconds (simulationTime + initial_time_interval));
+    VideoDownClient.Start (Seconds (INITIALTIMEINTERVAL));
+    VideoDownClient.Stop (Seconds (simulationTime + INITIALTIMEINTERVAL));
 
     if (verboseLevel > 0) {
       if (topology == 0) {
@@ -4139,7 +4153,7 @@ int main (int argc, char *argv[]) {
   if (aggregationDynamicAlgorithm ==1) {
 
     // Schedule a periodic obtaining of statistics    
-    Simulator::Schedule(  Seconds(initial_time_interval),
+    Simulator::Schedule(  Seconds(INITIALTIMEINTERVAL),
                           &obtainStats,
                           monitor
                           /*, flowmon*/, // FIXME Avoid the use of a global variable 'flowmon'
@@ -4168,7 +4182,8 @@ int main (int argc, char *argv[]) {
         << "delay" << "\t"
         << "jitter" << "\t" 
         << "numRxPackets" << "\t"
-        << "numlostPackets" << "\n";
+        << "numlostPackets" << "\t"
+        << "throughput [bps]" << "\n";
 
 
     // Write the values of the AMPDU to a file
@@ -4192,7 +4207,7 @@ int main (int argc, char *argv[]) {
 
 
     // I schedule this after the first time when statistics have been obtained
-    Simulator::Schedule(  Seconds(initial_time_interval + timeMonitorDelay + 0.0001),
+    Simulator::Schedule(  Seconds(INITIALTIMEINTERVAL + timeMonitorDelay + 0.0001),
                           &saveStats,
                           nameKPIFile.str(),
                           myVoIPStatistics,
@@ -4202,7 +4217,7 @@ int main (int argc, char *argv[]) {
                           timeMonitorDelay);
 
     // Modify the AMPDU of the APs where there are VoIP flows
-    Simulator::Schedule(  Seconds(initial_time_interval + timeMonitorDelay + 0.0002),
+    Simulator::Schedule(  Seconds(INITIALTIMEINTERVAL + timeMonitorDelay + 0.0002),
                           &adjustAMPDU,
                           myVoIPStatistics,
                           verboseLevel,
@@ -4360,7 +4375,7 @@ if(false) {
     NS_LOG_INFO ("");
   }
 
-  Simulator::Stop (Seconds (simulationTime + initial_time_interval));
+  Simulator::Stop (Seconds (simulationTime + INITIALTIMEINTERVAL));
   Simulator::Run ();
 
   if (verboseLevel > 0)
@@ -4475,7 +4490,14 @@ if(false) {
                     << flow->first;
 
     // Print the statistics of this flow to an output file and to the screen
-    print_stats ( flow->second, simulationTime, generateHistograms, nameFlowFile.str(), surnameFlowFile.str(), verboseLevel, flowID.str(), this_is_the_first_flow );
+    print_stats ( flow->second, 
+                  simulationTime, 
+                  generateHistograms, 
+                  nameFlowFile.str(), 
+                  surnameFlowFile.str(), 
+                  verboseLevel, 
+                  flowID.str(), 
+                  this_is_the_first_flow );
 
     // the first time, print_stats will print a line with the title of each column
     // put the flag to 0
@@ -4530,7 +4552,7 @@ if(false) {
 
   if (verboseLevel > 0) {
     std::cout << "\n" 
-      << "The next figures are averaged per packet, not per flow:" << std::endl;
+              << "The next figures are averaged per packet, not per flow:" << std::endl;
 
     if ( total_VoIP_upload_rx_packets > 0 ) {
       std::cout << " Average VoIP upload latency [s]:\t" << total_VoIP_upload_latency / total_VoIP_upload_rx_packets << std::endl;
