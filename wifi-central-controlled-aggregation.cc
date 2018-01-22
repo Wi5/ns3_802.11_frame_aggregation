@@ -1974,6 +1974,7 @@ void obtainStats (Ptr<FlowMonitor> monitor/*, FlowMonitorHelper flowmon*/,
         std::cout << "\t\t\tAcum number of Rx packets: " << i->second.rxPackets << "\n";
         std::cout << "\t\t\tAcum number of Rx bytes: " << i->second.rxBytes << "\n";
         std::cout << "\t\t\tAcum number of lost packets: " << i->second.lostPackets << "\n"; // FIXME
+        std::cout << "\t\t\tAcum throughput: " << i->second.rxBytes * 8.0 / (Simulator::Now().GetSeconds() - INITIALTIMEINTERVAL) << "  [bps]\n";  // throughput
         //The previous line does not work correctly. If you add 'monitor->CheckForLostPackets (0.01)' at the beginning of the function, the number
         //of lost packets seems to be higher. However, the obtained number does not correspond to the final number
       }
@@ -1982,6 +1983,7 @@ void obtainStats (Ptr<FlowMonitor> monitor/*, FlowMonitorHelper flowmon*/,
       std::cout << "\t\t\tNumber of Rx packets this period: " << RxPacketsThisInterval << "\n";
       std::cout << "\t\t\tNumber of Rx bytes this period: " << RxBytesThisInterval << "\n";
       std::cout << "\t\t\tNumber of lost packets this period: " << lostPacketsThisInterval << "\n"; // FIXME: This does not work correctly
+      std::cout << "\t\t\tThroughput this period: " << RxBytesThisInterval * 8.0 / timeInterval << "  [bps]\n\n";  // throughput
       //std::cout << "\tt\tk= " << k << "\n";
     }
 
@@ -2042,6 +2044,7 @@ void saveStats (  std::string mynameKPIFile,
           << myFlowStatistics[k].lastIntervalJitter << "\t"
           << myFlowStatistics[k].lastIntervalRxPackets << "\t"
           << myFlowStatistics[k].lastIntervalLostPackets << "\t"
+          << myFlowStatistics[k].lastIntervalRxBytes * 8.0 / timeInterval << "\n"; // throughput
     }
   }
 
