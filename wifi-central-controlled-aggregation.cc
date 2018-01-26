@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v167
+ * v170
  * Developed and tested for ns-3.26, although the simulation crashes in some cases. One example:
  *    - more than one AP
  *    - set the RtsCtsThreshold below 48000
@@ -241,7 +241,11 @@ using namespace ns3;
 
 #define AGGRESSIVENESS 10     // Factor to decrease AMPDU down
 
-#define INITIALPORT 1000      // The value of the port for the first communication (probably VoIP upload)
+#define INITIALPORT_VOIP_UPLOAD     10000      // The value of the port for the first VoIP upload communication
+#define INITIALPORT_VOIP_DOWNLOAD   20000      // The value of the port for the first VoIP download communication
+#define INITIALPORT_TCP_UPLOAD      30000      // The value of the port for the first TCP upload communication
+#define INITIALPORT_TCP_DOWNLOAD    40000      // The value of the port for the first TCP download communication
+#define INITIALPORT_VIDEO_DOWNLOAD  50000      // The value of the port for the first video download communication
 
 #define MTU 1500    // The value of the MTU of the packets
 
@@ -1690,7 +1694,6 @@ FlowMonitorHelper flowmon;  // FIXME avoid this global variable
 
 // Struct for storing the statistics of the VoIP flows
 struct FlowStatistics {
-  uint32_t typeOfFlow; // 0: Not filled; 1: VoIP upload; 2: VoIP download; 3: non VoIP
   double acumDelay;
   double acumJitter;
   uint32_t acumRxPackets;
@@ -1703,9 +1706,23 @@ struct FlowStatistics {
   uint32_t lastIntervalRxBytes;
 };
 
+struct AllTheFlowStatistics {
+  uint16_t numberVoIPUploadFlows;
+  uint16_t numberVoIPDownloadFlows;
+  uint16_t numberTCPUploadFlows;
+  uint16_t numberTCPDownloadFlows;
+  uint16_t numberVideoDownloadFlows;
+  FlowStatistics* FlowStatisticsVoIPUpload;
+  FlowStatistics* FlowStatisticsVoIPDownload;
+  FlowStatistics* FlowStatisticsTCPUpload;
+  FlowStatistics* FlowStatisticsTCPDownload;
+  FlowStatistics* FlowStatisticsVideoDownload;
+};
+
 
 // Dynamically adjust the size of the AMPDU
-void adjustAMPDU (FlowStatistics* myFlowStatistics,
+void adjustAMPDU (//FlowStatistics* myFlowStatistics,
+                  AllTheFlowStatistics myAllTheFlowStatistics,
                   uint32_t verboseLevel,
                   double timeInterval,
                   double latencyBudget,
@@ -1730,49 +1747,176 @@ void adjustAMPDU (FlowStatistics* myFlowStatistics,
 
       // check if the STA is associated to an AP
       if ((*indexSTA)->GetAssoc()) {
+        // auxiliar string
+        std::ostringstream auxString;
+        // create a string with the MAC
+        auxString << "02-06-" << (*indexSTA)->GetMac();
+        std::string addressOfTheAPwhereThisSTAis = auxString.str();
 
-        // check if the STA is running VoIP (typeofapplication 1 or 2)
-        if ( ( (*indexSTA)->Gettypeofapplication () == 1) || ( (*indexSTA)->Gettypeofapplication () == 2) ) {
+        // check if the STA is associated to this AP
+        if ( (*indexAP)->GetMac() == addressOfTheAPwhereThisSTAis ) {
 
-          // auxiliar string
-          std::ostringstream auxString;
-          // create a string with the MAC
-          auxString << "02-06-" << (*indexSTA)->GetMac();
-          std::string addressOfTheAPwhereThisSTAis = auxString.str();
+          if (verboseLevel > 0) 
+            std::cout << Simulator::Now ().GetSeconds() 
+                      << "\t[adjustAMPDU]"
+                      << "\t\tSTA #" << (*indexSTA)->GetStaid() 
+                      << "\tassociated to AP #" << GetAnAP_Id(addressOfTheAPwhereThisSTAis) 
+                      << "\twith MAC " << (*indexSTA)->GetMac();
 
-          // check if the STA is associated to this AP
-          if ( (*indexAP)->GetMac() == addressOfTheAPwhereThisSTAis ) {
+          // VoIP upload
+          if ((*indexSTA)->Gettypeofapplication () == 1) {
+            if (verboseLevel > 0)
+              std::cout << "\tVoIP upload";
 
-            if (verboseLevel > 0) {
-              std::cout << Simulator::Now ().GetSeconds() 
-                        << "\t[adjustAMPDU]"
-                        << "\t\tSTA #" << (*indexSTA)->GetStaid() 
-                        << "\tassociated to AP #" << GetAnAP_Id(addressOfTheAPwhereThisSTAis) 
-                        << "\twith MAC " << (*indexSTA)->GetMac()
-                        ;
-              if ((*indexSTA)->Gettypeofapplication () == 1)
-                std::cout << "\t VoIP upload";
-              else
-                std::cout << "\t VoIP download";
+            // index for the vector of statistics of VoIPDownload flows
+            uint16_t indexForVector = (*indexSTA)->GetStaid()
+                                      - AP_vector.size();
 
-              // the first STA is created after the last AP. Therefore, '(*indexSTA)->GetStaid() - AP_vector.size()' is '0' for the first VoIP STA
-              // 'isnan' checks if the value is not a number
-              if (!isnan(myFlowStatistics[ (*indexSTA)->GetStaid() - AP_vector.size() ].lastIntervalDelay))
-                std::cout << "\tDelay: " << myFlowStatistics[ (*indexSTA)->GetStaid() - AP_vector.size() ].lastIntervalDelay 
+            // 'isnan' checks if the value is not a number
+            if (!isnan(myAllTheFlowStatistics.FlowStatisticsVoIPUpload[indexForVector].lastIntervalDelay)) {
+              if (verboseLevel > 0)
+                std::cout << "\tDelay: " << myAllTheFlowStatistics.FlowStatisticsVoIPUpload[indexForVector].lastIntervalDelay 
+                          << "\tThroughput: " << myAllTheFlowStatistics.FlowStatisticsVoIPUpload[indexForVector].lastIntervalRxBytes * 8 / timeInterval
+                          << "\t indexForVector is " << indexForVector;
+
+              // if the latency of this STA is the highest one so far, update the value of the highest latency
+              if (  myAllTheFlowStatistics.FlowStatisticsVoIPUpload[ indexForVector ].lastIntervalDelay > highestLatencyThisAP && 
+                    !isnan(myAllTheFlowStatistics.FlowStatisticsVoIPUpload[ indexForVector].lastIntervalDelay))
+
+                highestLatencyThisAP = myAllTheFlowStatistics.FlowStatisticsVoIPUpload[ indexForVector].lastIntervalDelay;
+
+            } else {
+              if (verboseLevel > 0) 
+                std::cout << "\tDelay not defined in this period" 
                           //<< "\t (*indexSTA)->GetStaid()  - AP_vector.size() is " << (*indexSTA)->GetStaid() - AP_vector.size()
-                          << std::endl;
-              else 
-                std::cout << "\tNot defined in this period" 
-                          //<< "\t (*indexSTA)->GetStaid()  - AP_vector.size() is " << (*indexSTA)->GetStaid() - AP_vector.size()
-                          << std::endl;
+                          ;
             }
 
-            if (  myFlowStatistics[ (*indexSTA)->GetStaid() - AP_vector.size() ].lastIntervalDelay > highestLatencyThisAP && 
-                  !isnan(myFlowStatistics[ (*indexSTA)->GetStaid() - AP_vector.size() ].lastIntervalDelay))
 
-              highestLatencyThisAP = myFlowStatistics[ (*indexSTA)->GetStaid() - AP_vector.size() ].lastIntervalDelay;
+          // VoIP download
+          } else if ((*indexSTA)->Gettypeofapplication () == 2) {
+            if (verboseLevel > 0)
+              std::cout << "\tVoIP download";
+
+            // index for the vector of statistics of VoIPDownload flows
+            uint16_t indexForVector = (*indexSTA)->GetStaid()
+                                      - AP_vector.size()
+                                      - myAllTheFlowStatistics.numberVoIPUploadFlows;
+
+            // 'isnan' checks if the value is not a number                                      
+            if (!isnan(myAllTheFlowStatistics.FlowStatisticsVoIPDownload[ indexForVector].lastIntervalDelay)) {
+              if (verboseLevel > 0)
+                std::cout << "\tDelay: " << myAllTheFlowStatistics.FlowStatisticsVoIPDownload[ indexForVector ].lastIntervalDelay 
+                          << "\tThroughput: " << myAllTheFlowStatistics.FlowStatisticsVoIPDownload[ indexForVector ].lastIntervalRxBytes * 8 / timeInterval
+                          << "\t indexForVector is " << indexForVector;
+
+              // if the latency of this STA is the highest one so far, update the value of the highest latency
+              if (  myAllTheFlowStatistics.FlowStatisticsVoIPDownload[ indexForVector ].lastIntervalDelay > highestLatencyThisAP && 
+                    !isnan(myAllTheFlowStatistics.FlowStatisticsVoIPDownload[ indexForVector ].lastIntervalDelay))
+
+                highestLatencyThisAP = myAllTheFlowStatistics.FlowStatisticsVoIPDownload[ indexForVector ].lastIntervalDelay;
+
+            } else {
+              if (verboseLevel > 0) 
+                std::cout << "\tDelay not defined in this period" 
+                          << "\t indexForVector is " << indexForVector;
+            }
+
+
+          // TCP upload
+          } else if ((*indexSTA)->Gettypeofapplication () == 3) {
+            if (verboseLevel > 0)
+              std::cout << "\tTCP upload";
+
+            // index for the vector of statistics of TCPload flows
+            uint16_t indexForVector = (*indexSTA)->GetStaid()
+                                      - AP_vector.size()
+                                      - myAllTheFlowStatistics.numberVoIPDownloadFlows
+                                      - myAllTheFlowStatistics.numberTCPUploadFlows;
+
+            // 'isnan' checks if the value is not a number
+            if (!isnan(myAllTheFlowStatistics.FlowStatisticsTCPUpload[ indexForVector ].lastIntervalRxBytes)) {
+              if (verboseLevel > 0)
+              std::cout << "\t\t\t"
+                        << "\tThroughput: " << myAllTheFlowStatistics.FlowStatisticsTCPUpload[ indexForVector ].lastIntervalRxBytes * 8 / timeInterval 
+                        << "\t indexForVector is " << indexForVector;
+
+            } else {
+              if (verboseLevel > 0)
+                std::cout << "\tThroughput not defined in this period" 
+                          //<< "\t (*indexSTA)->GetStaid()  - AP_vector.size() is " << (*indexSTA)->GetStaid() - AP_vector.size()
+                          ;
+            }
+
+
+          // TCP download
+          } else if ((*indexSTA)->Gettypeofapplication () == 4) {
+            if (verboseLevel > 0)
+              std::cout << "\tTCP download";
+
+            // index for the vector of statistics of TCPDownload flows
+            uint16_t indexForVector = (*indexSTA)->GetStaid()
+                                      - AP_vector.size()
+                                      - myAllTheFlowStatistics.numberVoIPUploadFlows
+                                      - myAllTheFlowStatistics.numberVoIPDownloadFlows
+                                      - myAllTheFlowStatistics.numberTCPUploadFlows;
+
+            // 'isnan' checks if the value is not a number
+            if (!isnan(myAllTheFlowStatistics.FlowStatisticsTCPDownload[ indexForVector ].lastIntervalRxBytes)) {
+              if (verboseLevel > 0)
+              std::cout << "\t\t\t"
+                        << "\tThroughput: " << myAllTheFlowStatistics.FlowStatisticsTCPDownload[ indexForVector ].lastIntervalRxBytes * 8 / timeInterval 
+                        << "\t indexForVector is " << indexForVector;
+
+            } else {
+              if (verboseLevel > 0)
+                std::cout << "\tThroughput not defined in this period" 
+                        << "\t indexForVector is " << indexForVector;
+            }
+
+
+          // Video download
+          } else if ((*indexSTA)->Gettypeofapplication () == 5) {
+              if (verboseLevel > 0)
+                std::cout << "\tVideo download";
+
+            // index for the vector of statistics of VideoDownload flows
+            uint16_t indexForVector = (*indexSTA)->GetStaid()
+                                      - AP_vector.size()
+                                      - myAllTheFlowStatistics.numberVoIPUploadFlows
+                                      - myAllTheFlowStatistics.numberVoIPDownloadFlows
+                                      - myAllTheFlowStatistics.numberTCPUploadFlows
+                                      - myAllTheFlowStatistics.numberTCPDownloadFlows;
+
+            // 'isnan' checks if the value is not a number
+            if (!isnan(myAllTheFlowStatistics.FlowStatisticsVideoDownload[ indexForVector ].lastIntervalRxBytes)) {
+              if (verboseLevel > 0)
+              std::cout << "\t\t"
+                        << "\tThroughput: " << myAllTheFlowStatistics.FlowStatisticsVideoDownload[ indexForVector ].lastIntervalRxBytes * 8 / timeInterval 
+                        << "\t indexForVector is " << indexForVector;
+
+            } else {
+              if (verboseLevel > 0)
+                std::cout << "\tThroughput not defined in this period" 
+                        << "\t indexForVector is " << indexForVector;
+            }
+
+
+
           }
+
+          if (verboseLevel > 0)           
+            std::cout << "\n";
+
         }
+
+      // this STA is not associated to any AP
+      } else {
+        if (verboseLevel > 0)
+          std::cout << Simulator::Now ().GetSeconds() 
+                    << "\t[adjustAMPDU]"
+                    << "\t\tSTA #" << (*indexSTA)->GetStaid() 
+                    << "\tnot associated to any AP #";
       }
     }
 
@@ -1814,7 +1958,7 @@ void adjustAMPDU (FlowStatistics* myFlowStatistics,
         std::cout << Simulator::Now ().GetSeconds()
                   << "\t[adjustAMPDU]"
                   //<< "\tAP #" << GetAnAP_Id((*indexAP)->GetMac())
-                  << "\t\tHighest Latency: " << highestLatencyThisAP << "s (limit " << latencyBudget << " s)"
+                  << "\t\tHighest Latency of VoIP flows: " << highestLatencyThisAP << "s (limit " << latencyBudget << " s)"
                   //<< "\twith MAC: " << (*indexAP)->GetMac() 
                   << "\tAMPDU of the AP not changed (" << (*indexAP)->GetMaxSizeAmpdu() << ")"
                   << std::endl;
@@ -1831,10 +1975,15 @@ void adjustAMPDU (FlowStatistics* myFlowStatistics,
         std::cout << Simulator::Now ().GetSeconds()
                   << "\t[adjustAMPDU]"
                   //<< "\tAP #" << GetAnAP_Id((*indexAP)->GetMac())
-                  << "\t\tHighest Latency: " << highestLatencyThisAP
-                  //<< "\twith MAC: " << (*indexAP)->GetMac() 
-                  << "\tAMPDU of the AP set to " << (*indexAP)->GetMaxSizeAmpdu()
-                  << std::endl;
+                  << "\t\tHighest Latency of VoIP flows: " << highestLatencyThisAP;
+                  //<< "\twith MAC: " << (*indexAP)->GetMac();
+
+        if ( newAmpduValue > oldAmpduValue )
+          std::cout << "\tAMPDU of the AP increased to " << (*indexAP)->GetMaxSizeAmpdu();
+        else 
+          std::cout << "\tAMPDU of the AP reduced to " << (*indexAP)->GetMaxSizeAmpdu();
+
+        std::cout << std::endl;
 
       // write the new AMPDU value to a file (it is written at the end of the file)
       if ( mynameAMPDUFile != "" ) {
@@ -1875,17 +2024,22 @@ void adjustAMPDU (FlowStatistics* myFlowStatistics,
               if (verboseLevel > 0) {
                 std::cout << Simulator::Now ().GetSeconds() 
                           << "\t[adjustAMPDU]"
-                          << "\t\tSTA #" << (*indexSTA)->GetStaid() 
-                          << "\tassociated to AP #" << GetAnAP_Id(addressOfTheAPwhereThisSTAis) 
-                          << "\twith MAC " << (*indexSTA)->GetMac()
-                          << "\tAMPDU of the STA set to " << newAmpduValue;
+                          << "\t\t\tSTA #" << (*indexSTA)->GetStaid() 
+                          //<< "\tassociated to AP #" << GetAnAP_Id(addressOfTheAPwhereThisSTAis) 
+                          //<< "\twith MAC " << (*indexSTA)->GetMac()
+                          ;
 
                 if ((*indexSTA)->Gettypeofapplication () == 3)
                   std::cout << "\t TCP upload";
                 else if ((*indexSTA)->Gettypeofapplication () == 4)
                   std::cout << "\t TCP download";
                 else if ((*indexSTA)->Gettypeofapplication () == 5)
-                  std::cout << "\t UDP Video download";
+                  std::cout << "\t Video download";
+
+                if ( newAmpduValue > oldAmpduValue )
+                  std::cout << "\t\tAMPDU of the STA increased to " << newAmpduValue;
+                else 
+                  std::cout << "\t\tAMPDU of the STA reduced to " << newAmpduValue;
 
                 std::cout << "\n";              
               }
@@ -1912,7 +2066,7 @@ void adjustAMPDU (FlowStatistics* myFlowStatistics,
   // Reschedule the calculation
   Simulator::Schedule(  Seconds(timeInterval),
                         &adjustAMPDU,
-                        myFlowStatistics,
+                        myAllTheFlowStatistics,
                         verboseLevel,
                         timeInterval,
                         latencyBudget,
@@ -1924,82 +2078,89 @@ void adjustAMPDU (FlowStatistics* myFlowStatistics,
 // Periodically obtain the statistics of the VoIP flows, using Flowmonitor
 void obtainStats (Ptr<FlowMonitor> monitor/*, FlowMonitorHelper flowmon*/, 
                   FlowStatistics* myFlowStatistics,
-                  uint16_t numberVoIPuploadFlows,
-                  uint16_t numberVoIPdownloadFlows,
+                  uint16_t typeOfFlow,
                   uint32_t verboseLevel,
                   double timeInterval)  //Interval between monitoring moments
 {
+
   monitor->CheckForLostPackets ();
   Ptr<Ipv4FlowClassifier> classifier = DynamicCast<Ipv4FlowClassifier> (flowmon.GetClassifier ());
-
-  // for each flow
   std::map<FlowId, FlowMonitor::FlowStats> stats = monitor->GetFlowStats ();
+
   uint16_t k = 0;
+
+  // for each flow, obtain and update the statistics
   for (std::map<FlowId, FlowMonitor::FlowStats>::const_iterator i = stats.begin (); i != stats.end (); ++i) {
 
     Ipv4FlowClassifier::FiveTuple t = classifier->FindFlow (i->first);
 
-    // fill the 'typeOfFlow' field if it is empty
-    if (myFlowStatistics[k].typeOfFlow == 0) {
-      if ( t.destinationPort < INITIALPORT + numberVoIPuploadFlows )
-        myFlowStatistics[k].typeOfFlow = 1;
-      else if (t.destinationPort < INITIALPORT + numberVoIPuploadFlows + numberVoIPdownloadFlows )
-        myFlowStatistics[k].typeOfFlow = 2;
-      else
-        myFlowStatistics[k].typeOfFlow = 3;   // non VoIP
-    }
+    uint32_t RxPacketsThisInterval;
+    uint32_t lostPacketsThisInterval;
+    uint32_t RxBytesThisInterval;
+    double averageLatencyThisInterval;
+    double averageJitterThisInterval;
 
-    // obtain the average latency and jitter only in the last interval
-    uint32_t RxPacketsThisInterval = i->second.rxPackets - myFlowStatistics[k].acumRxPackets;
-    uint32_t lostPacketsThisInterval = i->second.lostPackets - myFlowStatistics[k].acumLostPackets;
-    uint32_t RxBytesThisInterval = i->second.rxBytes - myFlowStatistics[k].acumRxBytes;
-    double averageLatencyThisInterval = (i->second.delaySum.GetSeconds() - myFlowStatistics[k].acumDelay) / RxPacketsThisInterval;
-    double averageJitterThisInterval = (i->second.jitterSum.GetSeconds() - myFlowStatistics[k].acumJitter) / RxPacketsThisInterval;
+    //std::cout << "Flow #" << k << "destinationPort: " << t.destinationPort << "/10000 = " << t.destinationPort / 10000 << "\n";
 
-    if (verboseLevel > 1) {
+    // avoid the flows of ACKs (TCP also generates these kind of flows)
+    if (t.destinationPort != 49153) {
+      if (t.destinationPort / 10000 == typeOfFlow ) {
+        // obtain the average latency and jitter only in the last interval
+        RxPacketsThisInterval = i->second.rxPackets - myFlowStatistics[k].acumRxPackets;
+        lostPacketsThisInterval = i->second.lostPackets - myFlowStatistics[k].acumLostPackets;
+        RxBytesThisInterval = i->second.rxBytes - myFlowStatistics[k].acumRxBytes;
+        averageLatencyThisInterval = (i->second.delaySum.GetSeconds() - myFlowStatistics[k].acumDelay) / RxPacketsThisInterval;
+        averageJitterThisInterval = (i->second.jitterSum.GetSeconds() - myFlowStatistics[k].acumJitter) / RxPacketsThisInterval;
 
-      std::cout << Simulator::Now().GetSeconds();
-      std::cout << "\t[obtainStats] flow " << i->first;
-      std::cout << "\t(type "<< myFlowStatistics[k].typeOfFlow << ")"; // type of flow
-      if (t.destinationPort < INITIALPORT + numberVoIPuploadFlows )
-        std::cout << "\tVoIP upload\n";
-      else if (t.destinationPort < INITIALPORT + numberVoIPuploadFlows + numberVoIPdownloadFlows )
-        std::cout << "\tVoIP download\n";
-      else
-        std::cout << "\tNon VoIP\n";
+        // update the values of the statistics      
+        myFlowStatistics[t.destinationPort % (10000 * typeOfFlow)].acumDelay = i->second.delaySum.GetSeconds();
+        myFlowStatistics[t.destinationPort % (10000 * typeOfFlow)].acumJitter = i->second.jitterSum.GetSeconds();
+        myFlowStatistics[t.destinationPort % (10000 * typeOfFlow)].acumRxPackets = i->second.rxPackets;
+        myFlowStatistics[t.destinationPort % (10000 * typeOfFlow)].acumLostPackets = i->second.lostPackets;
+        myFlowStatistics[t.destinationPort % (10000 * typeOfFlow)].acumRxBytes = i->second.rxBytes;
+        myFlowStatistics[t.destinationPort % (10000 * typeOfFlow)].lastIntervalDelay = averageLatencyThisInterval;
+        myFlowStatistics[t.destinationPort % (10000 * typeOfFlow)].lastIntervalJitter = averageJitterThisInterval;
+        myFlowStatistics[t.destinationPort % (10000 * typeOfFlow)].lastIntervalRxPackets = RxPacketsThisInterval;
+        myFlowStatistics[t.destinationPort % (10000 * typeOfFlow)].lastIntervalLostPackets = lostPacketsThisInterval;
+        myFlowStatistics[t.destinationPort % (10000 * typeOfFlow)].lastIntervalRxBytes = RxBytesThisInterval;
 
-      if (verboseLevel > 2) {
-        std::cout << "\t\t\tAcum delay at the beginning of the period: "<< myFlowStatistics[k].acumDelay << " [s]\n";
-        std::cout << "\t\t\tAcum delay at the end of the period: " << i->second.delaySum.GetSeconds() << " [s]\n";
-        std::cout << "\t\t\tAcum number of Rx packets: " << i->second.rxPackets << "\n";
-        std::cout << "\t\t\tAcum number of Rx bytes: " << i->second.rxBytes << "\n";
-        std::cout << "\t\t\tAcum number of lost packets: " << i->second.lostPackets << "\n"; // FIXME
-        std::cout << "\t\t\tAcum throughput: " << i->second.rxBytes * 8.0 / (Simulator::Now().GetSeconds() - INITIALTIMEINTERVAL) << "  [bps]\n";  // throughput
-        //The previous line does not work correctly. If you add 'monitor->CheckForLostPackets (0.01)' at the beginning of the function, the number
-        //of lost packets seems to be higher. However, the obtained number does not correspond to the final number
+        k++;
+
+        if (verboseLevel > 1) {
+
+          std::cout << Simulator::Now().GetSeconds();
+          std::cout << "\t[obtainStats] flow " << i->first;
+
+          if (t.destinationPort / 10000 == 1 )
+            std::cout << "\tVoIP upload\n";
+          else if (t.destinationPort / 10000 == 2 )
+            std::cout << "\tVoIP download\n";
+          else if (t.destinationPort / 10000 == 3 )
+            std::cout << "\tTCP upload\n";
+          else if (t.destinationPort / 10000 == 4 )
+            std::cout << "\tTCP download\n";
+          else if (t.destinationPort / 10000 == 5 )
+            std::cout << "\tVideo download\n";
+
+          if (verboseLevel > 2) {
+            std::cout << "\t\t\tAcum delay at the end of the period: " << i->second.delaySum.GetSeconds() << " [s]\n";
+            std::cout << "\t\t\tAcum number of Rx packets: " << i->second.rxPackets << "\n";
+            std::cout << "\t\t\tAcum number of Rx bytes: " << i->second.rxBytes << "\n";
+            std::cout << "\t\t\tAcum number of lost packets: " << i->second.lostPackets << "\n"; // FIXME
+            std::cout << "\t\t\tAcum throughput: " << i->second.rxBytes * 8.0 / (Simulator::Now().GetSeconds() - INITIALTIMEINTERVAL) << "  [bps]\n";  // throughput
+            //The previous line does not work correctly. If you add 'monitor->CheckForLostPackets (0.01)' at the beginning of the function, the number
+            //of lost packets seems to be higher. However, the obtained number does not correspond to the final number
+          }
+          std::cout << "\t\t\tAverage delay this period: " << averageLatencyThisInterval << " [s]\n";
+          std::cout << "\t\t\tAverage jitter this period: " << averageJitterThisInterval << " [s]\n";
+          std::cout << "\t\t\tNumber of Rx packets this period: " << RxPacketsThisInterval << "\n";
+          std::cout << "\t\t\tNumber of Rx bytes this period: " << RxBytesThisInterval << "\n";
+          std::cout << "\t\t\tNumber of lost packets this period: " << lostPacketsThisInterval << "\n"; // FIXME: This does not work correctly
+          std::cout << "\t\t\tThroughput this period: " << RxBytesThisInterval * 8.0 / timeInterval << "  [bps]\n\n";  // throughput
+          //std::cout << "\tt\tk= " << k << "\n";
+        }
       }
-      std::cout << "\t\t\tAverage delay this period: " << averageLatencyThisInterval << " [s]\n";
-      std::cout << "\t\t\tAverage jitter this period: " << averageJitterThisInterval << " [s]\n";
-      std::cout << "\t\t\tNumber of Rx packets this period: " << RxPacketsThisInterval << "\n";
-      std::cout << "\t\t\tNumber of Rx bytes this period: " << RxBytesThisInterval << "\n";
-      std::cout << "\t\t\tNumber of lost packets this period: " << lostPacketsThisInterval << "\n"; // FIXME: This does not work correctly
-      std::cout << "\t\t\tThroughput this period: " << RxBytesThisInterval * 8.0 / timeInterval << "  [bps]\n\n";  // throughput
-      //std::cout << "\tt\tk= " << k << "\n";
     }
-
-    // update the values of the statistics
-    myFlowStatistics[k].acumDelay = i->second.delaySum.GetSeconds();
-    myFlowStatistics[k].acumJitter = i->second.jitterSum.GetSeconds();
-    myFlowStatistics[k].acumRxPackets = i->second.rxPackets;
-    myFlowStatistics[k].acumLostPackets = i->second.lostPackets;
-    myFlowStatistics[k].acumRxBytes = i->second.rxBytes;
-    myFlowStatistics[k].lastIntervalDelay = averageLatencyThisInterval;
-    myFlowStatistics[k].lastIntervalJitter = averageJitterThisInterval;
-    myFlowStatistics[k].lastIntervalRxPackets = RxPacketsThisInterval;
-    myFlowStatistics[k].lastIntervalLostPackets = lostPacketsThisInterval;
-    myFlowStatistics[k].lastIntervalRxBytes = RxBytesThisInterval;
-
-    k ++;
   }
 
   // Reschedule the calculation
@@ -2007,8 +2168,7 @@ void obtainStats (Ptr<FlowMonitor> monitor/*, FlowMonitorHelper flowmon*/,
                         &obtainStats,
                         monitor/*, flowmon*/, 
                         myFlowStatistics,
-                        numberVoIPuploadFlows,
-                        numberVoIPdownloadFlows,
+                        typeOfFlow,
                         verboseLevel,
                         timeInterval);
 }
@@ -2016,8 +2176,7 @@ void obtainStats (Ptr<FlowMonitor> monitor/*, FlowMonitorHelper flowmon*/,
 
 // Periodically obtain the statistics of the VoIP flows, using Flowmonitor
 void saveStats (  std::string mynameKPIFile,
-                  FlowStatistics* myFlowStatistics,
-                  uint16_t numberOfFlows,
+                  AllTheFlowStatistics myAllTheFlowStatistics,
                   uint32_t verboseLevel,
                   double timeInterval)  //Interval between monitoring moments
 {
@@ -2027,24 +2186,69 @@ void saveStats (  std::string mynameKPIFile,
     std::ofstream ofs;
     ofs.open ( mynameKPIFile, std::ofstream::out | std::ofstream::app); // with "trunc" Any contents that existed in the file before it is open are discarded. with "app", all output operations happen at the end of the file, appending to its existing contents
 
-    //for (uint16_t k = 0; k < numberVoIPuploadFlows + numberVoIPdownloadFlows; k++) {
-    for (uint16_t k = 0; k < numberOfFlows; k++) {
+    for (uint16_t i = 0; i < myAllTheFlowStatistics.numberVoIPUploadFlows; i++) {
       ofs << Simulator::Now().GetSeconds() << "\t"; // timestamp
-      ofs << k << "\t"; // number of the flow
+      ofs << i << "\t"; // number of the flow
+      ofs << "VoIP_upload\t";
+      ofs << myAllTheFlowStatistics.FlowStatisticsVoIPUpload[i].lastIntervalDelay << "\t"
+          << myAllTheFlowStatistics.FlowStatisticsVoIPUpload[i].lastIntervalJitter << "\t"
+          << myAllTheFlowStatistics.FlowStatisticsVoIPUpload[i].lastIntervalRxPackets << "\t"
+          << myAllTheFlowStatistics.FlowStatisticsVoIPUpload[i].lastIntervalLostPackets << "\t"
+          << myAllTheFlowStatistics.FlowStatisticsVoIPUpload[i].lastIntervalRxBytes * 8.0 / timeInterval << "\n"; // throughput
+    }
 
-      if ( myFlowStatistics[k].typeOfFlow == 1 ) {
-        ofs << "VoIP_upload\t";
-      } else if ( myFlowStatistics[k].typeOfFlow == 2 ) {
-        ofs << "VoIP_download\t";    
-      } else if ( myFlowStatistics[k].typeOfFlow == 3 ) {
-        ofs << "non_VoIP\t";
-      } 
+    for (uint16_t i = 0; i < myAllTheFlowStatistics.numberVoIPDownloadFlows; i++) {
+      ofs << Simulator::Now().GetSeconds() << "\t"; // timestamp
+      ofs << i
+              + myAllTheFlowStatistics.numberVoIPUploadFlows << "\t"; // number of the flow
+      ofs << "VoIP_download\t";
+      ofs << myAllTheFlowStatistics.FlowStatisticsVoIPDownload[i].lastIntervalDelay << "\t"
+          << myAllTheFlowStatistics.FlowStatisticsVoIPDownload[i].lastIntervalJitter << "\t"
+          << myAllTheFlowStatistics.FlowStatisticsVoIPDownload[i].lastIntervalRxPackets << "\t"
+          << myAllTheFlowStatistics.FlowStatisticsVoIPDownload[i].lastIntervalLostPackets << "\t"
+          << myAllTheFlowStatistics.FlowStatisticsVoIPDownload[i].lastIntervalRxBytes * 8.0 / timeInterval << "\n"; // throughput
+    }
 
-      ofs << myFlowStatistics[k].lastIntervalDelay << "\t"
-          << myFlowStatistics[k].lastIntervalJitter << "\t"
-          << myFlowStatistics[k].lastIntervalRxPackets << "\t"
-          << myFlowStatistics[k].lastIntervalLostPackets << "\t"
-          << myFlowStatistics[k].lastIntervalRxBytes * 8.0 / timeInterval << "\n"; // throughput
+    for (uint16_t i = 0; i < myAllTheFlowStatistics.numberTCPUploadFlows; i++) {
+      ofs << Simulator::Now().GetSeconds() << "\t"; // timestamp
+      ofs << i 
+              + myAllTheFlowStatistics.numberVoIPUploadFlows 
+              + myAllTheFlowStatistics.numberVoIPDownloadFlows << "\t"; // number of the flow
+      ofs << "TCP_upload\t";
+      ofs << myAllTheFlowStatistics.FlowStatisticsTCPUpload[i].lastIntervalDelay << "\t"
+          << myAllTheFlowStatistics.FlowStatisticsTCPUpload[i].lastIntervalJitter << "\t"
+          << myAllTheFlowStatistics.FlowStatisticsTCPUpload[i].lastIntervalRxPackets << "\t"
+          << myAllTheFlowStatistics.FlowStatisticsTCPUpload[i].lastIntervalLostPackets << "\t"
+          << myAllTheFlowStatistics.FlowStatisticsTCPUpload[i].lastIntervalRxBytes * 8.0 / timeInterval << "\n"; // throughput
+    }
+
+    for (uint16_t i = 0; i < myAllTheFlowStatistics.numberTCPDownloadFlows; i++) {
+      ofs << Simulator::Now().GetSeconds() << "\t"; // timestamp
+      ofs << i 
+              + myAllTheFlowStatistics.numberVoIPUploadFlows 
+              + myAllTheFlowStatistics.numberVoIPDownloadFlows 
+              + myAllTheFlowStatistics.numberTCPUploadFlows << "\t"; // number of the flow
+      ofs << "TCP_download\t";
+      ofs << myAllTheFlowStatistics.FlowStatisticsTCPDownload[i].lastIntervalDelay << "\t"
+          << myAllTheFlowStatistics.FlowStatisticsTCPDownload[i].lastIntervalJitter << "\t"
+          << myAllTheFlowStatistics.FlowStatisticsTCPDownload[i].lastIntervalRxPackets << "\t"
+          << myAllTheFlowStatistics.FlowStatisticsTCPDownload[i].lastIntervalLostPackets << "\t"
+          << myAllTheFlowStatistics.FlowStatisticsTCPDownload[i].lastIntervalRxBytes * 8.0 / timeInterval << "\n"; // throughput
+    }
+
+    for (uint16_t i = 0; i < myAllTheFlowStatistics.numberVideoDownloadFlows; i++) {
+      ofs << Simulator::Now().GetSeconds() << "\t"; // timestamp
+      ofs << i  
+              + myAllTheFlowStatistics.numberVoIPUploadFlows 
+              + myAllTheFlowStatistics.numberVoIPDownloadFlows 
+              + myAllTheFlowStatistics.numberTCPUploadFlows 
+              + myAllTheFlowStatistics.numberTCPDownloadFlows << "\t"; // number of the flow
+      ofs << "Video_download\t"; 
+      ofs << myAllTheFlowStatistics.FlowStatisticsVideoDownload[i].lastIntervalDelay << "\t"
+          << myAllTheFlowStatistics.FlowStatisticsVideoDownload[i].lastIntervalJitter << "\t"
+          << myAllTheFlowStatistics.FlowStatisticsVideoDownload[i].lastIntervalRxPackets << "\t"
+          << myAllTheFlowStatistics.FlowStatisticsVideoDownload[i].lastIntervalLostPackets << "\t"
+          << myAllTheFlowStatistics.FlowStatisticsVideoDownload[i].lastIntervalRxBytes * 8.0 / timeInterval << "\n"; // throughput
     }
   }
 
@@ -2052,8 +2256,7 @@ void saveStats (  std::string mynameKPIFile,
   Simulator::Schedule(  Seconds(timeInterval),
                         &saveStats,
                         mynameKPIFile,
-                        myFlowStatistics,
-                        numberOfFlows,
+                        myAllTheFlowStatistics,
                         verboseLevel,
                         timeInterval);
 }
@@ -2066,8 +2269,6 @@ int main (int argc, char *argv[]) {
   // Variables to store some fixed parameters
   static uint32_t VoIPg729PayoladSize = 32; // Size of the UDP payload (also includes the RTP header) of a G729a packet with 2 samples
   static double VoIPg729IPT = 0.02; // Time between g729a packets (50 pps)
-
-  static uint16_t initial_port = INITIALPORT; // port to be used by the VoIP uplink application. Subsequent ones will be used by the other applications
 
   static double x_position_first_AP = 0.0;
   static double y_position_first_AP = 0.0;
@@ -2464,21 +2665,78 @@ int main (int argc, char *argv[]) {
 
   // Variable to store the flowmonitor statistics of the flows during the simulation
   // VoIP applications generate 1 flow
-  // TCP applications generate 2 flows: 1 for data and 1 for ACKs
+  // TCP applications generate 2 flows: 1 for data and 1 for ACKs (statistics are not stored for ACK flows)
   // video applications generate 1 flow
-  uint32_t numberOfFlows = numberVoIPupload + numberVoIPdownload + (2*numberTCPupload) + (2*numberTCPdownload) + numberVideoDownload;
-  struct FlowStatistics myFlowStatistics[numberOfFlows];
+  FlowStatistics myFlowStatisticsVoIPUpload[numberVoIPupload];
+  FlowStatistics myFlowStatisticsVoIPDownload[numberVoIPdownload];
+  FlowStatistics myFlowStatisticsTCPUpload[numberTCPupload];
+  FlowStatistics myFlowStatisticsTCPDownload[numberTCPdownload];
+  FlowStatistics myFlowStatisticsVideoDownload[numberVideoDownload];
 
+  AllTheFlowStatistics myAllTheFlowStatistics;
+  myAllTheFlowStatistics.numberVoIPUploadFlows = numberVoIPupload;
+  myAllTheFlowStatistics.numberVoIPDownloadFlows = numberVoIPdownload;
+  myAllTheFlowStatistics.numberTCPUploadFlows = numberTCPupload;
+  myAllTheFlowStatistics.numberTCPDownloadFlows = numberTCPdownload;
+  myAllTheFlowStatistics.numberVideoDownloadFlows = numberVideoDownload;
+  myAllTheFlowStatistics.FlowStatisticsVoIPUpload = myFlowStatisticsVoIPUpload;
+  myAllTheFlowStatistics.FlowStatisticsVoIPDownload = myFlowStatisticsVoIPDownload;
+  myAllTheFlowStatistics.FlowStatisticsTCPUpload = myFlowStatisticsTCPUpload;
+  myAllTheFlowStatistics.FlowStatisticsTCPDownload = myFlowStatisticsTCPDownload;
+  myAllTheFlowStatistics.FlowStatisticsVideoDownload = myFlowStatisticsVideoDownload;
+
+/*
+  uint16_t numberOfFlows[5];
+  numberOfFlows[0] = numberVoIPupload;
+  numberOfFlows[1] = numberVoIPdownload;
+  numberOfFlows[2] = numberTCPupload;
+  numberOfFlows[3] = numberTCPdownload;
+  numberOfFlows[4] = numberVideoDownload;
+*/
   // Initialize to 0
-  for (uint16_t i = 0 ; i < numberOfFlows; i++) {
-    myFlowStatistics[i].typeOfFlow = 0;
-    myFlowStatistics[i].acumDelay = 0.0;
-    myFlowStatistics[i].acumJitter = 0.0;
-    myFlowStatistics[i].acumRxPackets = 0;
-    myFlowStatistics[i].acumRxBytes = 0;
-    myFlowStatistics[i].acumLostPackets = 0;
+  for (uint16_t i = 0 ; i < numberVoIPupload; i++) {
+    myFlowStatisticsVoIPUpload[i].acumDelay = 0.0;
+    myFlowStatisticsVoIPUpload[i].acumJitter = 0.0;
+    myFlowStatisticsVoIPUpload[i].acumRxPackets = 0;
+    myFlowStatisticsVoIPUpload[i].acumRxBytes = 0;
+    myFlowStatisticsVoIPUpload[i].acumLostPackets = 0;
   }
 
+  // Initialize to 0
+  for (uint16_t i = 0 ; i < numberVoIPdownload; i++) {
+    myFlowStatisticsVoIPDownload[i].acumDelay = 0.0;
+    myFlowStatisticsVoIPDownload[i].acumJitter = 0.0;
+    myFlowStatisticsVoIPDownload[i].acumRxPackets = 0;
+    myFlowStatisticsVoIPDownload[i].acumRxBytes = 0;
+    myFlowStatisticsVoIPDownload[i].acumLostPackets = 0;
+  }
+
+  // Initialize to 0
+  for (uint16_t i = 0 ; i < numberTCPupload; i++) {
+    myFlowStatisticsTCPUpload[i].acumDelay = 0.0;
+    myFlowStatisticsTCPUpload[i].acumJitter = 0.0;
+    myFlowStatisticsTCPUpload[i].acumRxPackets = 0;
+    myFlowStatisticsTCPUpload[i].acumRxBytes = 0;
+    myFlowStatisticsTCPUpload[i].acumLostPackets = 0;
+  }
+
+  // Initialize to 0
+  for (uint16_t i = 0 ; i < numberTCPdownload; i++) {
+    myFlowStatisticsTCPDownload[i].acumDelay = 0.0;
+    myFlowStatisticsTCPDownload[i].acumJitter = 0.0;
+    myFlowStatisticsTCPDownload[i].acumRxPackets = 0;
+    myFlowStatisticsTCPDownload[i].acumRxBytes = 0;
+    myFlowStatisticsTCPDownload[i].acumLostPackets = 0;
+  }
+
+  // Initialize to 0
+  for (uint16_t i = 0 ; i < numberVideoDownload; i++) {
+    myFlowStatisticsVideoDownload[i].acumDelay = 0.0;
+    myFlowStatisticsVideoDownload[i].acumJitter = 0.0;
+    myFlowStatisticsVideoDownload[i].acumRxPackets = 0;
+    myFlowStatisticsVideoDownload[i].acumRxBytes = 0;
+    myFlowStatisticsVideoDownload[i].acumLostPackets = 0;
+  }
 
 //  if ( verboseLevel > 1 )
 //    ArpCache.EnableLogComponents ();  // Turn on all Arp logging
@@ -3645,7 +3903,7 @@ int main (int argc, char *argv[]) {
   /************* Setting applications ***********/
 
   // Variable for setting the port of each communication
-  uint16_t port = initial_port;
+  uint16_t port = INITIALPORT_VOIP_UPLOAD;
 
   // VoIP upload
   // UDPClient runs in the STA and UDPServer runs in the server(s)
@@ -3716,6 +3974,7 @@ int main (int argc, char *argv[]) {
                   << '\n';
       }
     }
+
     port ++; // Each UDP connection requires a different port
   }
 
@@ -3728,6 +3987,7 @@ int main (int argc, char *argv[]) {
   // UdpServer runs in each STA. It waits for input UDP packets and uses the
   // information carried into their payload to compute delay and to determine
   // if some packets are lost. https://www.nsnam.org/doxygen/classns3_1_1_udp_server_helper.html#details
+  port = INITIALPORT_VOIP_DOWNLOAD;
 
   UdpServerHelper myVoipDownServer;
 
@@ -3836,6 +4096,8 @@ int main (int argc, char *argv[]) {
 
 
   //TCP upload
+  port = INITIALPORT_TCP_UPLOAD;
+
   // Create a PacketSinkApplication and install it on the remote nodes
   ApplicationContainer PacketSinkTcpUp;
 
@@ -3906,6 +4168,8 @@ int main (int argc, char *argv[]) {
 
 
   // TCP download
+  port = INITIALPORT_TCP_DOWNLOAD;
+
   // Create a PacketSink Application and install it on the wifi STAs
   ApplicationContainer PacketSinkTcpDown;
 
@@ -3974,6 +4238,7 @@ int main (int argc, char *argv[]) {
 
 
   // Video download Application
+  port = INITIALPORT_VIDEO_DOWNLOAD;
   // Using UdpTraceClient, see  https://www.nsnam.org/doxygen/udp-trace-client_8cc_source.html
   //                            https://www.nsnam.org/doxygen/structns3_1_1_udp_trace_client.html
   // The traffic traces are      http://www2.tkn.tu-berlin.de/research/trace/ltvt.html (the 2 first lines of the file should be removed)
@@ -4162,9 +4427,48 @@ int main (int argc, char *argv[]) {
                           &obtainStats,
                           monitor
                           /*, flowmon*/, // FIXME Avoid the use of a global variable 'flowmon'
-                          myFlowStatistics,
-                          numberVoIPupload,
-                          numberVoIPdownload,
+                          myFlowStatisticsVoIPUpload,
+                          1,
+                          verboseLevel,
+                          timeMonitorDelay);
+
+    // Schedule a periodic obtaining of statistics    
+    Simulator::Schedule(  Seconds(INITIALTIMEINTERVAL),
+                          &obtainStats,
+                          monitor
+                          /*, flowmon*/, // FIXME Avoid the use of a global variable 'flowmon'
+                          myFlowStatisticsVoIPDownload,
+                          2,
+                          verboseLevel,
+                          timeMonitorDelay);
+
+    // Schedule a periodic obtaining of statistics    
+    Simulator::Schedule(  Seconds(INITIALTIMEINTERVAL),
+                          &obtainStats,
+                          monitor
+                          /*, flowmon*/, // FIXME Avoid the use of a global variable 'flowmon'
+                          myFlowStatisticsTCPUpload,
+                          3,
+                          verboseLevel,
+                          timeMonitorDelay);
+
+    // Schedule a periodic obtaining of statistics    
+    Simulator::Schedule(  Seconds(INITIALTIMEINTERVAL),
+                          &obtainStats,
+                          monitor
+                          /*, flowmon*/, // FIXME Avoid the use of a global variable 'flowmon'
+                          myFlowStatisticsTCPDownload,
+                          4,
+                          verboseLevel,
+                          timeMonitorDelay);
+
+    // Schedule a periodic obtaining of statistics    
+    Simulator::Schedule(  Seconds(INITIALTIMEINTERVAL),
+                          &obtainStats,
+                          monitor
+                          /*, flowmon*/, // FIXME Avoid the use of a global variable 'flowmon'
+                          myFlowStatisticsVideoDownload,
+                          5,
                           verboseLevel,
                           timeMonitorDelay);
 
@@ -4211,19 +4515,18 @@ int main (int argc, char *argv[]) {
               << "AMPDU set to [bytes]" << "\n";
 
 
-    // I schedule this after the first time when statistics have been obtained
+    // schedule this after the first time when statistics have been obtained
     Simulator::Schedule(  Seconds(INITIALTIMEINTERVAL + timeMonitorDelay + 0.0001),
                           &saveStats,
                           nameKPIFile.str(),
-                          myFlowStatistics,
-                          numberOfFlows,
+                          myAllTheFlowStatistics,
                           verboseLevel,
                           timeMonitorDelay);
 
     // Modify the AMPDU of the APs where there are VoIP flows
     Simulator::Schedule(  Seconds(INITIALTIMEINTERVAL + timeMonitorDelay + 0.0002),
                           &adjustAMPDU,
-                          myFlowStatistics,
+                          myAllTheFlowStatistics,
                           verboseLevel,
                           timeMonitorDelay,
                           latencyBudget,
@@ -4462,23 +4765,23 @@ if(false) {
             << t.destinationPort;
 
     // UDP upload flows
-    if (  (t.destinationPort >= initial_port ) && 
-          (t.destinationPort <  initial_port + numberVoIPupload )) {
+    if (  (t.destinationPort >= INITIALPORT_VOIP_UPLOAD ) && 
+          (t.destinationPort <  INITIALPORT_VOIP_UPLOAD + numberVoIPupload )) {
       flowID << "\t VoIP upload";
     // UDP download flows
-    } else if ( (t.destinationPort >= initial_port + numberVoIPupload ) && 
-                (t.destinationPort <  initial_port + numberVoIPupload + numberVoIPdownload )) { 
+    } else if ( (t.destinationPort >= INITIALPORT_VOIP_DOWNLOAD ) && 
+                (t.destinationPort <  INITIALPORT_VOIP_DOWNLOAD + numberVoIPdownload )) { 
       flowID << "\t VoIP download";
     // TCP upload flows
-    } else if ( (t.destinationPort >= initial_port + numberVoIPupload + numberVoIPdownload ) && 
-                (t.destinationPort <  initial_port + numberVoIPupload + numberVoIPdownload + numberTCPupload )) { 
+    } else if ( (t.destinationPort >= INITIALPORT_TCP_UPLOAD ) && 
+                (t.destinationPort <  INITIALPORT_TCP_UPLOAD + numberTCPupload )) { 
       flowID << "\t TCP upload";
     // TCP download flows
-    } else if ( (t.destinationPort >= initial_port + numberVoIPupload + numberVoIPdownload + numberTCPupload ) && 
-                (t.destinationPort <  initial_port + numberVoIPupload + numberVoIPdownload + numberTCPupload + numberTCPdownload )) { 
+    } else if ( (t.destinationPort >= INITIALPORT_TCP_DOWNLOAD ) && 
+                (t.destinationPort <  INITIALPORT_TCP_DOWNLOAD + numberTCPdownload )) { 
       flowID << "\t TCP download";
-    } else if ( (t.destinationPort >= initial_port + numberVoIPupload + numberVoIPdownload + numberTCPupload + numberTCPdownload ) && 
-                (t.destinationPort <  initial_port + numberVoIPupload + numberVoIPdownload + numberTCPupload + numberTCPdownload + numberVideoDownload)) { 
+    } else if ( (t.destinationPort >= INITIALPORT_VIDEO_DOWNLOAD ) && 
+                (t.destinationPort <  INITIALPORT_VIDEO_DOWNLOAD + numberVideoDownload)) { 
       flowID << "\t Video download";
     } 
 
@@ -4511,8 +4814,8 @@ if(false) {
     // calculate it in a cumulative way
 
     // UDP upload flows
-    if (  (t.destinationPort >= initial_port ) && 
-          (t.destinationPort <  initial_port + numberVoIPupload )) {
+    if (  (t.destinationPort >= INITIALPORT_VOIP_UPLOAD ) && 
+          (t.destinationPort <  INITIALPORT_VOIP_UPLOAD + numberVoIPupload )) {
 
         total_VoIP_upload_tx_packets = total_VoIP_upload_tx_packets + flow->second.txPackets;
         total_VoIP_upload_rx_packets = total_VoIP_upload_rx_packets + flow->second.rxPackets;
@@ -4521,8 +4824,8 @@ if(false) {
         number_of_UDP_upload_flows ++;
 
     // UDP download flows
-    } else if ( (t.destinationPort >= initial_port + numberVoIPupload ) && 
-                (t.destinationPort <  initial_port + numberVoIPupload + numberVoIPdownload )) { 
+    } else if ( (t.destinationPort >= INITIALPORT_VOIP_DOWNLOAD ) && 
+                (t.destinationPort <  INITIALPORT_VOIP_DOWNLOAD + numberVoIPdownload )) { 
 
         total_VoIP_download_tx_packets = total_VoIP_download_tx_packets + flow->second.txPackets;
         total_VoIP_download_rx_packets = total_VoIP_download_rx_packets + flow->second.rxPackets;
@@ -4531,22 +4834,22 @@ if(false) {
         number_of_UDP_download_flows ++;
 
     // TCP upload flows
-    } else if ( (t.destinationPort >= initial_port + numberVoIPupload + numberVoIPdownload ) && 
-                (t.destinationPort <  initial_port + numberVoIPupload + numberVoIPdownload + numberTCPupload )) { 
+    } else if ( (t.destinationPort >= INITIALPORT_TCP_UPLOAD ) && 
+                (t.destinationPort <  INITIALPORT_TCP_UPLOAD + numberTCPupload )) {  
 
         total_TCP_upload_throughput = total_TCP_upload_throughput + ( flow->second.rxBytes * 8.0 / simulationTime );
         number_of_TCP_upload_flows ++;
 
     // TCP download flows
-    } else if ( (t.destinationPort >= initial_port + numberVoIPupload + numberVoIPdownload + numberTCPupload ) && 
-                (t.destinationPort <  initial_port + numberVoIPupload + numberVoIPdownload + numberTCPupload + numberTCPdownload )) { 
+    } else if ( (t.destinationPort >= INITIALPORT_TCP_DOWNLOAD ) && 
+                (t.destinationPort <  INITIALPORT_TCP_DOWNLOAD + numberTCPdownload )) {
 
         total_TCP_download_throughput = total_TCP_download_throughput + ( flow->second.rxBytes * 8.0 / simulationTime );                                          
         number_of_TCP_download_flows ++;
 
     // video download flows
-    } else if ( (t.destinationPort >= initial_port + numberVoIPupload + numberVoIPdownload + numberTCPupload + numberTCPdownload ) && 
-                (t.destinationPort <  initial_port + numberVoIPupload + numberVoIPdownload + numberTCPupload + numberTCPdownload + numberVideoDownload)) { 
+    } else if ( (t.destinationPort >= INITIALPORT_VIDEO_DOWNLOAD ) && 
+                (t.destinationPort <  INITIALPORT_VIDEO_DOWNLOAD + numberVideoDownload)) { 
       
         total_video_download_throughput = total_video_download_throughput + ( flow->second.rxBytes * 8.0 / simulationTime );                                          
         number_of_video_download_flows ++;
