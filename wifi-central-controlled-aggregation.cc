@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v170
+ * v171
  * Developed and tested for ns-3.26, although the simulation crashes in some cases. One example:
  *    - more than one AP
  *    - set the RtsCtsThreshold below 48000
@@ -2285,7 +2285,7 @@ int main (int argc, char *argv[]) {
   double distance_between_APs = 50.0; // X-axis and Y-axis distance between APs (meters)
   uint32_t number_of_STAs_per_row = number_of_APs_per_row;
   double distance_between_STAs = distance_between_APs;
-  double distanceToBorder = 0.6 * distance_between_APs; // It is used for establishing the coordinates of the square where the STA move randomly
+  double distanceToBorder = 0.5 * distance_between_APs; // It is used for establishing the coordinates of the square where the STA move randomly
 
   uint32_t nodeMobility = 0;
   double constantSpeed = 1.5;  // X-axis speed (m/s) in the case the constant speed model is used (https://en.wikipedia.org/wiki/Preferred_walking_speed)
