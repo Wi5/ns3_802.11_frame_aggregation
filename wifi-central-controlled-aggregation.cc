@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v173
+ * v174
  * Developed and tested for ns-3.26, although the simulation crashes in some cases. One example:
  *    - more than one AP
  *    - set the RtsCtsThreshold below 48000
@@ -687,48 +687,13 @@ ReportPosition (double period, Ptr<Node> node, int i, int type, int myverbose, N
 }
 
 
-// Save the position of a STA in a file
-static void
-SavePositionSTA (double period, Ptr<Node> node, NodeContainer myApNodes, std::string fileName)
-{
-  // print the results to a file (they are written at the end of the file)
-  if ( fileName != "" ) {
-
-    std::ofstream ofs;
-    ofs.open ( fileName, std::ofstream::out | std::ofstream::app); // with "trunc" Any contents that existed in the file before it is open are discarded. with "app", all output operations happen at the end of the file, appending to its existing contents
-
-    Vector posSTA = GetPosition (node);
-
-    // Find the nearest AP
-    Ptr<Node> myNearestAP;
-    myNearestAP = nearestAp (myApNodes, node, 0);
-    Vector posMyNearestAP = GetPosition (myNearestAP);
-    double distance = sqrt ( ( (posSTA.x - posMyNearestAP.x)*(posSTA.x - posMyNearestAP.x) ) + ( (posSTA.y - posMyNearestAP.y)*(posSTA.y - posMyNearestAP.y) ) );
-
-    // print a line in the output file
-    ofs << Simulator::Now().GetSeconds() << "\t"
-        << (node)->GetId() << "\t"
-        << posSTA.x << "\t"
-        << posSTA.y << "\t"
-        << (myNearestAP)->GetId() << "\t"
-        << posMyNearestAP.x << "\t"
-        << posMyNearestAP.y << "\t"
-        << distance << "\t"
-        << std::endl;
-
-    // re-schedule
-    Simulator::Schedule (Seconds (period), &SavePositionSTA, period, node, myApNodes, fileName);
-  }
-}
-
-
 // Print the simulation time to std::cout
 static void printTime (double period, std::string myoutputFileName, std::string myoutputFileSurname)
 {
   std::cout << Simulator::Now().GetSeconds() << "\t" << myoutputFileName << "_" << myoutputFileSurname << '\n';
 
   // re-schedule 
-  Simulator::Schedule (Seconds (period), &printTime, period, myoutputFileName, myoutputFileSurname);
+  Simulator::Schedule (Seconds (period), &printTime, period, myoutputFileName, myoutputFileName);
 }
 
 
@@ -1117,7 +1082,7 @@ class STA_record
     void SetVerboseLevel (uint32_t myVerboseLevel);
     void SetnumChannels (uint32_t mynumChannels);
     void Setversion80211 (uint32_t myversion80211);
-    void SetaggregationLimitAlgorithm (uint16_t myaggregationLimitAlgorithm);
+    void SetaggregationDisableAlgorithm (uint16_t myaggregationDisableAlgorithm);
     void SetAmpduSize (uint32_t myAmpduSize);
     void SetmaxAmpduSizeWhenAggregationLimited (uint32_t mymaxAmpduSizeWhenAggregationLimited);
     void SetWifiModel (uint32_t mywifiModel);
@@ -1130,7 +1095,7 @@ class STA_record
     uint32_t staRecordVerboseLevel;
     uint32_t staRecordNumChannels;
     uint32_t staRecordVersion80211;
-    uint16_t staRecordaggregationLimitAlgorithm;
+    uint16_t staRecordaggregationDisableAlgorithm;
     uint32_t staRecordMaxAmpduSize;
     uint32_t staRecordmaxAmpduSizeWhenAggregationLimited;
     uint32_t staRecordwifiModel;
@@ -1147,7 +1112,7 @@ STA_record::STA_record ()
   staRecordVerboseLevel = 0;
   staRecordNumChannels = 0;
   staRecordVersion80211 = 0;
-  staRecordaggregationLimitAlgorithm = 0;
+  staRecordaggregationDisableAlgorithm = 0;
   staRecordMaxAmpduSize = 0;
   staRecordmaxAmpduSizeWhenAggregationLimited = 0;
   staRecordwifiModel = 0;
@@ -1242,7 +1207,7 @@ STA_record::SetAssoc (std::string context, Mac48Address AP_MAC_address)
               << "" << std::endl;
 
   // This part only runs if the aggregation algorithm is activated
-  if (staRecordaggregationLimitAlgorithm == 1) {
+  if (staRecordaggregationDisableAlgorithm == 1) {
     // check if the STA associated to the AP is running VoIP. In this case, I have to disable aggregation:
     // - in the AP
     // - in all the associated STAs
@@ -1400,7 +1365,7 @@ STA_record::UnsetAssoc (std::string context, Mac48Address AP_MAC_address)
               << "" << std::endl;
 
   // This only runs if the aggregation algorithm is running
-  if(staRecordaggregationLimitAlgorithm == 1) {
+  if(staRecordaggregationDisableAlgorithm == 1) {
 
     // check if there is some VoIP STA already associated to the AP. In this case, I have to enable aggregation:
     // - in the AP
@@ -1631,9 +1596,9 @@ STA_record::Setversion80211 (uint32_t myversion80211)
 }
 
 void
-STA_record::SetaggregationLimitAlgorithm (uint16_t myaggregationLimitAlgorithm)
+STA_record::SetaggregationDisableAlgorithm (uint16_t myaggregationDisableAlgorithm)
 {
-  staRecordaggregationLimitAlgorithm = myaggregationLimitAlgorithm;
+  staRecordaggregationDisableAlgorithm = myaggregationDisableAlgorithm;
 }
 
 void
@@ -1725,6 +1690,71 @@ GetstaRecordMaxSizeAmpdu (uint16_t thisSTAid, uint32_t myverbose)
   return staRecordMaxSizeAmpdu;
 }
 */
+
+// Save the position of a STA in a file
+static void
+SavePositionSTA (double period, Ptr<Node> node, NodeContainer myApNodes, std::string fileName)
+{
+  // print the results to a file (they are written at the end of the file)
+  if ( fileName != "" ) {
+
+    std::ofstream ofs;
+    ofs.open ( fileName, std::ofstream::out | std::ofstream::app); // with "trunc" Any contents that existed in the file before it is open are discarded. with "app", all output operations happen at the end of the file, appending to its existing contents
+
+    // Find the position of the STA
+    Vector posSTA = GetPosition (node);
+
+
+    // Find the nearest AP
+    Ptr<Node> myNearestAP;
+    myNearestAP = nearestAp (myApNodes, node, 0);
+    Vector posMyNearestAP = GetPosition (myNearestAP);
+    double distanceToNearestAP = sqrt ( ( (posSTA.x - posMyNearestAP.x)*(posSTA.x - posMyNearestAP.x) ) + ( (posSTA.y - posMyNearestAP.y)*(posSTA.y - posMyNearestAP.y) ) );
+
+    std::string MACaddressAP;
+
+    // find the AP to which the STA is associated
+    for (STA_recordVector::const_iterator index = assoc_vector.begin (); index != assoc_vector.end (); index++) {
+
+      if ((*index)->GetStaid () == node->GetId()) {
+
+        // if the STA is associated, find the MAC of the AP
+        if ((*index)->GetAssoc ()) {
+          // auxiliar string
+          std::ostringstream auxString;
+          // create a string with the MAC
+          auxString << "02-06-" << (*index)->GetMac();
+          MACaddressAP = auxString.str();
+        }
+      }
+    }
+
+    // Find the position of the AP to which this STA is associated
+    Ptr<Node> myAP;
+    myAP = myApNodes.Get (GetAnAP_Id(MACaddressAP));
+    Vector posMyAP = GetPosition (myAP);
+    double distanceToMyAP = sqrt ( ( (posSTA.x - posMyAP.x)*(posSTA.x - posMyAP.x) ) + ( (posSTA.y - posMyAP.y)*(posSTA.y - posMyAP.y) ) );
+
+    // print a line in the output file
+    ofs << Simulator::Now().GetSeconds() << "\t"
+        << (node)->GetId() << "\t"
+        << posSTA.x << "\t"
+        << posSTA.y << "\t"
+        << (myNearestAP)->GetId() << "\t"
+        << posMyNearestAP.x << "\t"
+        << posMyNearestAP.y << "\t"
+        << distanceToNearestAP << "\t"
+        << GetAnAP_Id(MACaddressAP) << "\t"
+        << posMyAP.x << "\t"
+        << posMyAP.y << "\t"
+        << distanceToMyAP << "\t"
+        << std::endl;
+
+    // re-schedule
+    Simulator::Schedule (Seconds (period), &SavePositionSTA, period, node, myApNodes, fileName);
+  }
+}
+
 
 
 
@@ -2116,7 +2146,7 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
 
 
 // Periodically obtain the statistics of the VoIP flows, using Flowmonitor
-void obtainStats (Ptr<FlowMonitor> monitor/*, FlowMonitorHelper flowmon*/, 
+void obtainKPIs (Ptr<FlowMonitor> monitor/*, FlowMonitorHelper flowmon*/, 
                   FlowStatistics* myFlowStatistics,
                   uint16_t typeOfFlow,
                   uint32_t verboseLevel,
@@ -2169,7 +2199,7 @@ void obtainStats (Ptr<FlowMonitor> monitor/*, FlowMonitorHelper flowmon*/,
         if (verboseLevel > 1) {
 
           std::cout << Simulator::Now().GetSeconds();
-          std::cout << "\t[obtainStats] flow " << i->first;
+          std::cout << "\t[obtainKPIs] flow " << i->first;
 
           if (t.destinationPort / 10000 == 1 )
             std::cout << "\tVoIP upload\n";
@@ -2205,7 +2235,7 @@ void obtainStats (Ptr<FlowMonitor> monitor/*, FlowMonitorHelper flowmon*/,
 
   // Reschedule the calculation
   Simulator::Schedule(  Seconds(timeInterval),
-                        &obtainStats,
+                        &obtainKPIs,
                         monitor/*, flowmon*/, 
                         myFlowStatistics,
                         typeOfFlow,
@@ -2215,10 +2245,10 @@ void obtainStats (Ptr<FlowMonitor> monitor/*, FlowMonitorHelper flowmon*/,
 
 
 // Periodically obtain the statistics of the VoIP flows, using Flowmonitor
-void saveStats (  std::string mynameKPIFile,
-                  AllTheFlowStatistics myAllTheFlowStatistics,
-                  uint32_t verboseLevel,
-                  double timeInterval)  //Interval between monitoring moments
+void saveKPIs ( std::string mynameKPIFile,
+                AllTheFlowStatistics myAllTheFlowStatistics,
+                uint32_t verboseLevel,
+                double timeInterval)  //Interval between monitoring moments
 {
   // print the results to a file (they are written at the end of the file)
   if ( mynameKPIFile != "" ) {
@@ -2294,7 +2324,7 @@ void saveStats (  std::string mynameKPIFile,
 
   // Reschedule the writing
   Simulator::Schedule(  Seconds(timeInterval),
-                        &saveStats,
+                        &saveKPIs,
                         mynameKPIFile,
                         myAllTheFlowStatistics,
                         verboseLevel,
@@ -2332,7 +2362,7 @@ int main (int argc, char *argv[]) {
 
   double rateAPsWithAMPDUenabled = 1.0; // rate of APs with A-MPDU enabled at the beginning of the simulation
 
-  uint16_t aggregationLimitAlgorithm = 0;  // Set this to 1 in order to make the central control algorithm limiting the AMPDU run
+  uint16_t aggregationDisableAlgorithm = 0;  // Set this to 1 in order to make the central control algorithm limiting the AMPDU run
   uint32_t maxAmpduSizeWhenAggregationLimited = 0;  // Only for TCP. Minimum size (to be used when aggregation is 'limited')
 
   uint16_t aggregationDynamicAlgorithm = 0;  // Set this to 1 in order to make the central control algorithm dynamically modifying AMPDU run
@@ -2442,7 +2472,7 @@ int main (int argc, char *argv[]) {
   // will always see a non-aggregating AP, whereas TCP users
   // will receive non-aggregated frames in some moments
   cmd.AddValue ("rateAPsWithAMPDUenabled", "Initial rate of APs with AMPDU aggregation enabled", rateAPsWithAMPDUenabled);
-  cmd.AddValue ("aggregationLimitAlgorithm", "Is the algorithm limiting AMPDU aggregation enabled?", aggregationLimitAlgorithm);
+  cmd.AddValue ("aggregationDisableAlgorithm", "Is the algorithm enabling/disabling AMPDU aggregation enabled?", aggregationDisableAlgorithm);
   cmd.AddValue ("maxAmpduSize", "Maximum value of the AMPDU [bytes]", maxAmpduSize);
   // The objective of '--maxAmpduSizeWhenAggregationLimited=8000' is the next:
   // the algorithm is used but, instead of deactivating the aggregation,
@@ -2529,7 +2559,7 @@ int main (int argc, char *argv[]) {
     }
   }
 
-  if ((aggregationLimitAlgorithm == 1 ) && (rateAPsWithAMPDUenabled < 1.0 )) {
+  if ((aggregationDisableAlgorithm == 1 ) && (rateAPsWithAMPDUenabled < 1.0 )) {
     std::cout << "INPUT PARAMETER ERROR: The algorithm has to start with all the APs with A-MPDU enabled (--rateAPsWithAMPDUenabled=1.0). Stopping the simulation." << '\n';
     error = 1;
   }
@@ -2539,13 +2569,13 @@ int main (int argc, char *argv[]) {
     error = 1;        
   }
 
-  if ((maxAmpduSizeWhenAggregationLimited > 0 ) && ( aggregationLimitAlgorithm == 0 ) ) {
-    std::cout << "INPUT PARAMETER ERROR: You cannot set 'maxAmpduSizeWhenAggregationLimited' if 'aggregationLimitAlgorithm' is not active. Stopping the simulation." << '\n';      
+  if ((maxAmpduSizeWhenAggregationLimited > 0 ) && ( aggregationDisableAlgorithm == 0 ) ) {
+    std::cout << "INPUT PARAMETER ERROR: You cannot set 'maxAmpduSizeWhenAggregationLimited' if 'aggregationDisableAlgorithm' is not active. Stopping the simulation." << '\n';      
     error = 1;        
   }
 
-  if ((aggregationLimitAlgorithm == 1 ) && (aggregationDynamicAlgorithm == 1 )) {
-    std::cout << "INPUT PARAMETER ERROR: Only one algorithm for modifying AMPDU can be active ('aggregationLimitAlgorithm' and 'aggregationDynamicAlgorithm'). Stopping the simulation." << '\n';      
+  if ((aggregationDisableAlgorithm == 1 ) && (aggregationDynamicAlgorithm == 1 )) {
+    std::cout << "INPUT PARAMETER ERROR: Only one algorithm for modifying AMPDU can be active ('aggregationDisableAlgorithm' and 'aggregationDynamicAlgorithm'). Stopping the simulation." << '\n';      
     error = 1;
   }
 
@@ -2662,7 +2692,7 @@ int main (int argc, char *argv[]) {
     std::cout << '\n';
     // Aggregation parameters    
     std::cout << "Initial rate of APs with AMPDU aggregation enabled: " << rateAPsWithAMPDUenabled << '\n';
-    std::cout << "Is the algorithm limiting AMPDU aggregation enabled?: " << aggregationLimitAlgorithm << '\n';
+    std::cout << "Is the algorithm enabling/disabling AMPDU aggregation enabled?: " << aggregationDisableAlgorithm << '\n';
     std::cout << "Maximum value of the AMPDU size: " << maxAmpduSize << " bytes" << '\n';
     std::cout << "Maximum value of the AMPDU size when aggregation is limited: " << maxAmpduSizeWhenAggregationLimited << " bytes" << '\n';
     std::cout << "Is the algorithm dynamically adapting AMPDU aggregation enabled?" << aggregationDynamicAlgorithm << '\n';
@@ -3115,7 +3145,7 @@ int main (int argc, char *argv[]) {
 
 
   // Periodically report the positions of all the STAs
-  if (verboseLevel > 2) {
+  if ((verboseLevel > 2) && (timeMonitorKPIs > 0)) {
     for (uint32_t j = 0; j < number_of_STAs; ++j) {
       Simulator::Schedule ( Seconds (INITIALTIMEINTERVAL),
                             &ReportPosition, 
@@ -3133,7 +3163,7 @@ int main (int argc, char *argv[]) {
   }
 
 
-  if (true) {
+  if (timeMonitorKPIs > 0) {
     // Write the values of the positions to a file
     // create a string with the name of the output file
     std::ostringstream namePositionsFile;
@@ -3147,14 +3177,19 @@ int main (int argc, char *argv[]) {
     ofs.open ( namePositionsFile.str(), std::ofstream::out | std::ofstream::trunc); // with "trunc" Any contents that existed in the file before it is open are discarded. with "app", all output operations happen at the end of the file, appending to its existing contents
 
     // write the first line in the file (includes the titles of the columns)
-    ofs << "timestamp [s]" << "\t"
-        << "STA ID" << "\t"
-        << "STA x [m]" << "\t"
-        << "STA y [m]" << "\t"
-        << "Nearest AP ID" << "\t" 
-        << "AP x [m]" << "\t"
-        << "AP y [m]" << "\t"
-        << "distance STA-AP [m]" << "\n";
+    ofs << "timestamp [s]\t"
+        << "STA ID\t"
+        << "STA x [m]\t"
+        << "STA y [m]\t"
+        << "Nearest AP ID\t" 
+        << "AP x [m]\t"
+        << "AP y [m]\t"
+        << "distance STA-nearest AP [m]\t"
+        << "Associated to AP ID\t"
+        << "AP x [m]\t"
+        << "AP y [m]\t"
+        << "distance STA-my AP [m]\t"
+        << "\n";
 
     for (uint32_t j = 0; j < number_of_STAs; ++j) {
       Simulator::Schedule ( Seconds (INITIALTIMEINTERVAL), &SavePositionSTA, timeMonitorKPIs, staNodes.Get(j), apNodes, namePositionsFile.str());
@@ -3488,7 +3523,7 @@ int main (int argc, char *argv[]) {
     Ipv4InterfaceContainer staInterface;
 
     // If none of the aggregation algorithms is enabled, all the STAs aggregate
-    if ((aggregationLimitAlgorithm == 0) && (aggregationDynamicAlgorithm == 0)) {
+    if ((aggregationDisableAlgorithm == 0) && (aggregationDynamicAlgorithm == 0)) {
       wifiMac.SetType ( "ns3::StaWifiMac",
                         "Ssid", SsidValue (stassid));
       
@@ -3611,14 +3646,17 @@ int main (int argc, char *argv[]) {
     for (uint32_t j = 0; j < number_of_STAs; j++) {
       wifiPhyPtrClient = staDevices[j].Get(0)->GetObject<WifiNetDevice>()->GetPhy()->GetObject<SpectrumWifiPhy>();
 
-      std::cout << "STA\t#" << staNodes.Get(j)->GetId()
-                << "\tAdded operational channels: ";
+      if (verboseLevel > 0)
+        std::cout << "STA\t#" << staNodes.Get(j)->GetId()
+                  << "\tAdded operational channels: ";
 
       for (uint32_t k = 0; k < numChannels; k++) {
         (*wifiPhyPtrClient).AddOperationalChannel ( availableChannels[k] );
-        std::cout << uint16_t(availableChannels[k]) << " "; 
+        if (verboseLevel > 0)
+          std::cout << uint16_t(availableChannels[k]) << " "; 
       }
-      std::cout << '\n'; 
+      if (verboseLevel > 0)
+        std::cout << '\n'; 
     }
   }
 
@@ -3941,7 +3979,7 @@ int main (int argc, char *argv[]) {
     // Establish the rest of the private variables of the STA record
     m_STArecord->SetnumChannels (numChannels);
     m_STArecord->Setversion80211 (version80211);
-    m_STArecord->SetaggregationLimitAlgorithm (aggregationLimitAlgorithm);
+    m_STArecord->SetaggregationDisableAlgorithm (aggregationDisableAlgorithm);
     m_STArecord->SetAmpduSize (maxAmpduSize);
     m_STArecord->SetmaxAmpduSizeWhenAggregationLimited (maxAmpduSizeWhenAggregationLimited);
     m_STArecord->SetWifiModel (wifiModel);
@@ -3954,7 +3992,7 @@ int main (int argc, char *argv[]) {
     std::string strSTA = STA.str();
 
     // Check if we are using the algoritm for deactivating / activating aggregation
-    //if ( aggregationLimitAlgorithm == 1) {
+    //if ( aggregationDisableAlgorithm == 1) {
 
       // This makes a callback every time a STA gets associated to an AP
       // see trace sources in https://www.nsnam.org/doxygen/classns3_1_1_sta_wifi_mac.html#details
@@ -4496,7 +4534,7 @@ int main (int argc, char *argv[]) {
   if (timeMonitorKPIs > 0.0) {
     // Schedule a periodic obtaining of statistics    
     Simulator::Schedule(  Seconds(INITIALTIMEINTERVAL),
-                          &obtainStats,
+                          &obtainKPIs,
                           monitor
                           /*, flowmon*/, // FIXME Avoid the use of a global variable 'flowmon'
                           myFlowStatisticsVoIPUpload,
@@ -4506,7 +4544,7 @@ int main (int argc, char *argv[]) {
 
     // Schedule a periodic obtaining of statistics    
     Simulator::Schedule(  Seconds(INITIALTIMEINTERVAL),
-                          &obtainStats,
+                          &obtainKPIs,
                           monitor
                           /*, flowmon*/, // FIXME Avoid the use of a global variable 'flowmon'
                           myFlowStatisticsVoIPDownload,
@@ -4516,7 +4554,7 @@ int main (int argc, char *argv[]) {
 
     // Schedule a periodic obtaining of statistics    
     Simulator::Schedule(  Seconds(INITIALTIMEINTERVAL),
-                          &obtainStats,
+                          &obtainKPIs,
                           monitor
                           /*, flowmon*/, // FIXME Avoid the use of a global variable 'flowmon'
                           myFlowStatisticsTCPUpload,
@@ -4526,7 +4564,7 @@ int main (int argc, char *argv[]) {
 
     // Schedule a periodic obtaining of statistics    
     Simulator::Schedule(  Seconds(INITIALTIMEINTERVAL),
-                          &obtainStats,
+                          &obtainKPIs,
                           monitor
                           /*, flowmon*/, // FIXME Avoid the use of a global variable 'flowmon'
                           myFlowStatisticsTCPDownload,
@@ -4536,7 +4574,7 @@ int main (int argc, char *argv[]) {
 
     // Schedule a periodic obtaining of statistics    
     Simulator::Schedule(  Seconds(INITIALTIMEINTERVAL),
-                          &obtainStats,
+                          &obtainKPIs,
                           monitor
                           /*, flowmon*/, // FIXME Avoid the use of a global variable 'flowmon'
                           myFlowStatisticsVideoDownload,
@@ -4558,7 +4596,7 @@ int main (int argc, char *argv[]) {
 
     // write the first line in the file (includes the titles of the columns)
     ofs << "timestamp [s]" << "\t"
-        << "ID" << "\t"
+        << "flow ID" << "\t"
         << "application" << "\t"
         << "delay [s]" << "\t"
         << "jitter [s]" << "\t" 
@@ -4568,7 +4606,7 @@ int main (int argc, char *argv[]) {
 
     // schedule this after the first time when statistics have been obtained
     Simulator::Schedule(  Seconds(INITIALTIMEINTERVAL + timeMonitorKPIs + 0.0001),
-                          &saveStats,
+                          &saveKPIs,
                           nameKPIFile.str(),
                           myAllTheFlowStatistics,
                           verboseLevel,
@@ -4643,7 +4681,7 @@ int main (int argc, char *argv[]) {
 // FIXME *** end of the trial ***
 
 
-  if ( (verboseLevel > 0) && (aggregationLimitAlgorithm == 1) ) {
+  if ( (verboseLevel > 0) && (aggregationDisableAlgorithm == 1) ) {
     Simulator::Schedule(Seconds(0.0), &List_STA_record);
     Simulator::Schedule(Seconds(0.0), &ListAPs, verboseLevel);
   }
