@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v171
+ * v172
  * Developed and tested for ns-3.26, although the simulation crashes in some cases. One example:
  *    - more than one AP
  *    - set the RtsCtsThreshold below 48000
@@ -654,25 +654,29 @@ ReportPosition (Ptr<Node> node, int i, int type, int myverbose, NodeContainer my
 // type = 0 means it will write 'AP#'
 // type = 1 means it will write 'STA#'
 {
-  Vector pos = GetPosition (node);
+  Vector posSTA = GetPosition (node);
 
   if (myverbose > 2)
     {
       if (type == 0) {
         std::cout << Simulator::Now().GetSeconds()
                   << "\t[ReportPosition] AP  #" << i 
-                  <<  " Position: "  << pos.x 
-                  << "," << pos.y 
+                  <<  " Position: "  << posSTA.x 
+                  << "," << posSTA.y 
                   << std::endl;
       } else {
         // Find the nearest AP
-        Ptr<Node> nearest;
-        nearest = nearestAp (myApNodes, node, myverbose);
+        Ptr<Node> myNearestAP;
+        myNearestAP = nearestAp (myApNodes, node, myverbose);
+        Vector posMyNearestAP = GetPosition (myNearestAP);
+        uint32_t distance = sqrt ( ( (posSTA.x - posMyNearestAP.x)*(posSTA.x - posMyNearestAP.x) ) + ( (posSTA.y - posMyNearestAP.y)*(posSTA.y - posMyNearestAP.y) ) );
+
         std::cout << Simulator::Now().GetSeconds()
                   << "\t[ReportPosition] STA #" << i 
-                  <<  " Position: "  << pos.x 
-                  << "," << pos.y 
-                  << ". The nearest AP is AP#" << (nearest)->GetId()
+                  <<  " Position: "  << posSTA.x
+                  << "," << posSTA.y 
+                  << ". The nearest AP is AP#" << (myNearestAP)->GetId()
+                  << ". Distance: " << distance << " m"
                   << std::endl;
       }
     }
@@ -2309,7 +2313,7 @@ int main (int argc, char *argv[]) {
 
   double simulationTime = 10.0; //seconds
 
-  double timeMonitorDelay = 1.0;  //seconds
+  double timeMonitorKPIs = 1.0;  //seconds
 
   uint16_t numberVoIPupload = 0;
   uint16_t numberVoIPdownload = 0;
@@ -2374,7 +2378,7 @@ int main (int argc, char *argv[]) {
   // General scenario topology parameters
   cmd.AddValue ("simulationTime", "Simulation time [s]", simulationTime);
   
-  cmd.AddValue ("timeMonitorDelay", "Time interval to monitor VoIP delay [s]. 0 (default) means no monitoring", timeMonitorDelay);
+  cmd.AddValue ("timeMonitorKPIs", "Time interval to monitor KPIs of the flows. Also used for adjusting the AMPDU algorithm. 0 (default) means no monitoring", timeMonitorKPIs);
 
   cmd.AddValue ("numberVoIPupload", "Number of nodes running VoIP up", numberVoIPupload);
   cmd.AddValue ("numberVoIPdownload", "Number of nodes running VoIP down", numberVoIPdownload);
@@ -2434,7 +2438,7 @@ int main (int argc, char *argv[]) {
   cmd.AddValue ("errorRateModel", "Error Rate model: '0' NistErrorRateModel (default); '1' YansErrorRateModel", errorRateModel);
 
   // Parameters of the output of the program
-  cmd.AddValue ("writeMobility", "Write mobility trace", writeMobility);
+  cmd.AddValue ("writeMobility", "Write mobility trace", writeMobility); // creates an output file with the positions of the nodes
   cmd.AddValue ("enablePcap", "Enable/disable pcap file generation", enablePcap);
   cmd.AddValue ("verboseLevel", "Tell echo applications to log if true", verboseLevel);
   cmd.AddValue ("printSeconds", "Periodically print simulation time", printSeconds);
@@ -2514,8 +2518,8 @@ int main (int argc, char *argv[]) {
     error = 1;
   }
 
-  if ((aggregationDynamicAlgorithm == 1 ) && (timeMonitorDelay == 0)) {
-    std::cout << "INPUT PARAMETER ERROR: The algorithm for dynamic AMPDU adaptation (--aggregationDynamicAlgorithm=1) requires delay monitoring ('timeMonitorDelay' should not be 0.0). Stopping the simulation." << '\n';
+  if ((aggregationDynamicAlgorithm == 1 ) && (timeMonitorKPIs == 0)) {
+    std::cout << "INPUT PARAMETER ERROR: The algorithm for dynamic AMPDU adaptation (--aggregationDynamicAlgorithm=1) requires KPI monitoring ('timeMonitorKPIs' should not be 0.0). Stopping the simulation." << '\n';
     error = 1;
   }
 
@@ -2603,7 +2607,7 @@ int main (int argc, char *argv[]) {
 
     // General scenario topology parameters
     std::cout << "Simulation Time: " << simulationTime <<" sec" << '\n';
-    std::cout << "Time interval to monitor VoIP delay [s] (0 means no monitoring): " << timeMonitorDelay <<" sec" << '\n';
+    std::cout << "Time interval to monitor KPIs of the flows. Also used for adjusting the AMPDU algorithm. (0 means no monitoring): " << timeMonitorKPIs <<" sec" << '\n';
     std::cout << "Number of nodes running VoIP up: " << numberVoIPupload << '\n';
     std::cout << "Number of nodes running VoIP down: " << numberVoIPdownload << '\n';
     std::cout << "Number of nodes running TCP up: " << numberTCPupload << '\n';
@@ -4419,9 +4423,8 @@ int main (int argc, char *argv[]) {
   }
 
 
-  // Algorithm for dynamically adjusting aggregation
-  if (aggregationDynamicAlgorithm ==1) {
-
+  // If the delay monitor is on, periodically calculate the statistics
+  if (timeMonitorKPIs > 0.0) {
     // Schedule a periodic obtaining of statistics    
     Simulator::Schedule(  Seconds(INITIALTIMEINTERVAL),
                           &obtainStats,
@@ -4430,7 +4433,7 @@ int main (int argc, char *argv[]) {
                           myFlowStatisticsVoIPUpload,
                           1,
                           verboseLevel,
-                          timeMonitorDelay);
+                          timeMonitorKPIs);
 
     // Schedule a periodic obtaining of statistics    
     Simulator::Schedule(  Seconds(INITIALTIMEINTERVAL),
@@ -4440,7 +4443,7 @@ int main (int argc, char *argv[]) {
                           myFlowStatisticsVoIPDownload,
                           2,
                           verboseLevel,
-                          timeMonitorDelay);
+                          timeMonitorKPIs);
 
     // Schedule a periodic obtaining of statistics    
     Simulator::Schedule(  Seconds(INITIALTIMEINTERVAL),
@@ -4450,7 +4453,7 @@ int main (int argc, char *argv[]) {
                           myFlowStatisticsTCPUpload,
                           3,
                           verboseLevel,
-                          timeMonitorDelay);
+                          timeMonitorKPIs);
 
     // Schedule a periodic obtaining of statistics    
     Simulator::Schedule(  Seconds(INITIALTIMEINTERVAL),
@@ -4460,7 +4463,7 @@ int main (int argc, char *argv[]) {
                           myFlowStatisticsTCPDownload,
                           4,
                           verboseLevel,
-                          timeMonitorDelay);
+                          timeMonitorKPIs);
 
     // Schedule a periodic obtaining of statistics    
     Simulator::Schedule(  Seconds(INITIALTIMEINTERVAL),
@@ -4470,16 +4473,16 @@ int main (int argc, char *argv[]) {
                           myFlowStatisticsVideoDownload,
                           5,
                           verboseLevel,
-                          timeMonitorDelay);
+                          timeMonitorKPIs);
 
     // Write the values of the network KPIs (delay, etc.) to a file
     // create a string with the name of the output file
     std::ostringstream nameKPIFile;
 
-    nameKPIFile  << outputFileName
-                  << "_"
-                  << outputFileSurname
-                  << "_KPIs.txt";
+    nameKPIFile << outputFileName
+                << "_"
+                << outputFileSurname
+                << "_KPIs.txt";
 
     std::ofstream ofs;
     ofs.open ( nameKPIFile.str(), std::ofstream::out | std::ofstream::trunc); // with "trunc" Any contents that existed in the file before it is open are discarded. with "app", all output operations happen at the end of the file, appending to its existing contents
@@ -4494,44 +4497,45 @@ int main (int argc, char *argv[]) {
         << "numlostPackets" << "\t"
         << "throughput [bps]" << "\n";
 
-
-    // Write the values of the AMPDU to a file
-    // create a string with the name of the output file
-    std::ostringstream nameAMPDUFile;
-
-    nameAMPDUFile << outputFileName
-                  << "_"
-                  << outputFileSurname
-                  << "_AMPDUvalues.txt";
-
-    std::ofstream ofsAMPDU;
-    ofsAMPDU.open ( nameAMPDUFile.str(), std::ofstream::out | std::ofstream::trunc); // with "trunc" Any contents that existed in the file before it is open are discarded. with "app", all output operations happen at the end of the file, appending to its existing contents
-
-    // write the first line in the file (includes the titles of the columns)
-    ofsAMPDU  << "timestamp" << "\t"
-              << "ID" << "\t"
-              << "type" << "\t"
-              << "associated to AP\t"
-              << "AMPDU set to [bytes]" << "\n";
-
-
     // schedule this after the first time when statistics have been obtained
-    Simulator::Schedule(  Seconds(INITIALTIMEINTERVAL + timeMonitorDelay + 0.0001),
+    Simulator::Schedule(  Seconds(INITIALTIMEINTERVAL + timeMonitorKPIs + 0.0001),
                           &saveStats,
                           nameKPIFile.str(),
                           myAllTheFlowStatistics,
                           verboseLevel,
-                          timeMonitorDelay);
+                          timeMonitorKPIs);
 
-    // Modify the AMPDU of the APs where there are VoIP flows
-    Simulator::Schedule(  Seconds(INITIALTIMEINTERVAL + timeMonitorDelay + 0.0002),
-                          &adjustAMPDU,
-                          myAllTheFlowStatistics,
-                          verboseLevel,
-                          timeMonitorDelay,
-                          latencyBudget,
-                          maxAmpduSize,
-                          nameAMPDUFile.str());
+    // Algorithm for dynamically adjusting aggregation
+    if (aggregationDynamicAlgorithm ==1) {
+      // Write the values of the AMPDU to a file
+      // create a string with the name of the output file
+      std::ostringstream nameAMPDUFile;
+
+      nameAMPDUFile << outputFileName
+                    << "_"
+                    << outputFileSurname
+                    << "_AMPDUvalues.txt";
+
+      std::ofstream ofsAMPDU;
+      ofsAMPDU.open ( nameAMPDUFile.str(), std::ofstream::out | std::ofstream::trunc); // with "trunc" Any contents that existed in the file before it is open are discarded. with "app", all output operations happen at the end of the file, appending to its existing contents
+
+      // write the first line in the file (includes the titles of the columns)
+      ofsAMPDU  << "timestamp" << "\t"
+                << "ID" << "\t"
+                << "type" << "\t"
+                << "associated to AP\t"
+                << "AMPDU set to [bytes]" << "\n";
+
+      // Modify the AMPDU of the APs where there are VoIP flows
+      Simulator::Schedule(  Seconds(INITIALTIMEINTERVAL + timeMonitorKPIs + 0.0002),
+                            &adjustAMPDU,
+                            myAllTheFlowStatistics,
+                            verboseLevel,
+                            timeMonitorKPIs,
+                            latencyBudget,
+                            maxAmpduSize,
+                            nameAMPDUFile.str());
+    }
   }
 
 
