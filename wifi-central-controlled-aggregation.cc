@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v172
+ * v173
  * Developed and tested for ns-3.26, although the simulation crashes in some cases. One example:
  *    - more than one AP
  *    - set the RtsCtsThreshold below 48000
@@ -647,29 +647,30 @@ nearestAp (NodeContainer APs, Ptr<Node> mySTA, int myverbose)
   return nearest;
 }
 
+
 // Print the position of a node
 // taken from https://www.nsnam.org/doxygen/wifi-ap_8cc.html
 static void
-ReportPosition (Ptr<Node> node, int i, int type, int myverbose, NodeContainer myApNodes)
-// type = 0 means it will write 'AP#'
-// type = 1 means it will write 'STA#'
+ReportPosition (double period, Ptr<Node> node, int i, int type, int myverbose, NodeContainer myApNodes)
 {
   Vector posSTA = GetPosition (node);
 
   if (myverbose > 2)
     {
+      // type = 0 means it will write the position of an AP
       if (type == 0) {
         std::cout << Simulator::Now().GetSeconds()
                   << "\t[ReportPosition] AP  #" << i 
                   <<  " Position: "  << posSTA.x 
                   << "," << posSTA.y 
                   << std::endl;
+      // type = 1 means it will write the position of an STA
       } else {
         // Find the nearest AP
         Ptr<Node> myNearestAP;
         myNearestAP = nearestAp (myApNodes, node, myverbose);
         Vector posMyNearestAP = GetPosition (myNearestAP);
-        uint32_t distance = sqrt ( ( (posSTA.x - posMyNearestAP.x)*(posSTA.x - posMyNearestAP.x) ) + ( (posSTA.y - posMyNearestAP.y)*(posSTA.y - posMyNearestAP.y) ) );
+        double distance = sqrt ( ( (posSTA.x - posMyNearestAP.x)*(posSTA.x - posMyNearestAP.x) ) + ( (posSTA.y - posMyNearestAP.y)*(posSTA.y - posMyNearestAP.y) ) );
 
         std::cout << Simulator::Now().GetSeconds()
                   << "\t[ReportPosition] STA #" << i 
@@ -681,13 +682,48 @@ ReportPosition (Ptr<Node> node, int i, int type, int myverbose, NodeContainer my
       }
     }
 
-  // re-schedule in 1 second
-  Simulator::Schedule (Seconds (1.0), &ReportPosition, node, i, type, myverbose, myApNodes);
+  // re-schedule
+  Simulator::Schedule (Seconds (period), &ReportPosition, period, node, i, type, myverbose, myApNodes);
+}
+
+
+// Save the position of a STA in a file
+static void
+SavePositionSTA (double period, Ptr<Node> node, NodeContainer myApNodes, std::string fileName)
+{
+  // print the results to a file (they are written at the end of the file)
+  if ( fileName != "" ) {
+
+    std::ofstream ofs;
+    ofs.open ( fileName, std::ofstream::out | std::ofstream::app); // with "trunc" Any contents that existed in the file before it is open are discarded. with "app", all output operations happen at the end of the file, appending to its existing contents
+
+    Vector posSTA = GetPosition (node);
+
+    // Find the nearest AP
+    Ptr<Node> myNearestAP;
+    myNearestAP = nearestAp (myApNodes, node, 0);
+    Vector posMyNearestAP = GetPosition (myNearestAP);
+    double distance = sqrt ( ( (posSTA.x - posMyNearestAP.x)*(posSTA.x - posMyNearestAP.x) ) + ( (posSTA.y - posMyNearestAP.y)*(posSTA.y - posMyNearestAP.y) ) );
+
+    // print a line in the output file
+    ofs << Simulator::Now().GetSeconds() << "\t"
+        << (node)->GetId() << "\t"
+        << posSTA.x << "\t"
+        << posSTA.y << "\t"
+        << (myNearestAP)->GetId() << "\t"
+        << posMyNearestAP.x << "\t"
+        << posMyNearestAP.y << "\t"
+        << distance << "\t"
+        << std::endl;
+
+    // re-schedule
+    Simulator::Schedule (Seconds (period), &SavePositionSTA, period, node, myApNodes, fileName);
+  }
 }
 
 
 // Print the simulation time to std::cout
-static void printTime (uint32_t period, std::string myoutputFileName, std::string myoutputFileSurname)
+static void printTime (double period, std::string myoutputFileName, std::string myoutputFileSurname)
 {
   std::cout << Simulator::Now().GetSeconds() << "\t" << myoutputFileName << "_" << myoutputFileSurname << '\n';
 
@@ -2863,7 +2899,7 @@ int main (int argc, char *argv[]) {
 
   if (verboseLevel > 2) {
     for (uint32_t i = 0; i < number_of_APs; ++i) {
-      //ReportPosition (backboneNodes.Get(i), i, 0, 1, apNodes); this would report the position every second
+      //ReportPosition (timeMonitorKPIs, backboneNodes.Get(i), i, 0, 1, apNodes); this would report the position every second
       //Vector pos = GetPosition (backboneNodes.Get (i));
       Vector pos = GetPosition (apNodes.Get (i));
       std::cout << "AP#" << i << " Position: " << pos.x << "," << pos.y << '\n';
@@ -3081,7 +3117,14 @@ int main (int argc, char *argv[]) {
   // Periodically report the positions of all the STAs
   if (verboseLevel > 2) {
     for (uint32_t j = 0; j < number_of_STAs; ++j) {
-      Simulator::Schedule (Seconds (INITIALTIMEINTERVAL), &ReportPosition, staNodes.Get(j), number_of_APs + number_of_Servers + j , 1, verboseLevel, apNodes);
+      Simulator::Schedule ( Seconds (INITIALTIMEINTERVAL),
+                            &ReportPosition, 
+                            timeMonitorKPIs, 
+                            staNodes.Get(j), 
+                            number_of_APs + number_of_Servers + j, 
+                            1, 
+                            verboseLevel, 
+                            apNodes);
     }
 
     // This makes a callback every time a STA changes its course
@@ -3090,7 +3133,33 @@ int main (int argc, char *argv[]) {
   }
 
 
+  if (true) {
+    // Write the values of the positions to a file
+    // create a string with the name of the output file
+    std::ostringstream namePositionsFile;
 
+    namePositionsFile << outputFileName
+                << "_"
+                << outputFileSurname
+                << "_positions.txt";
+
+    std::ofstream ofs;
+    ofs.open ( namePositionsFile.str(), std::ofstream::out | std::ofstream::trunc); // with "trunc" Any contents that existed in the file before it is open are discarded. with "app", all output operations happen at the end of the file, appending to its existing contents
+
+    // write the first line in the file (includes the titles of the columns)
+    ofs << "timestamp [s]" << "\t"
+        << "STA ID" << "\t"
+        << "STA x [m]" << "\t"
+        << "STA y [m]" << "\t"
+        << "Nearest AP ID" << "\t" 
+        << "AP x [m]" << "\t"
+        << "AP y [m]" << "\t"
+        << "distance STA-AP [m]" << "\n";
+
+    for (uint32_t j = 0; j < number_of_STAs; ++j) {
+      Simulator::Schedule ( Seconds (INITIALTIMEINTERVAL), &SavePositionSTA, timeMonitorKPIs, staNodes.Get(j), apNodes, namePositionsFile.str());
+    }
+  }
 
   /******** create the channels (wifi, csma and point to point) *********/
 
