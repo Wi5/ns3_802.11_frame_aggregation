@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v174
+ * v175
  * Developed and tested for ns-3.26, although the simulation crashes in some cases. One example:
  *    - more than one AP
  *    - set the RtsCtsThreshold below 48000
@@ -187,6 +187,7 @@ Two possibilities:
 //    - name_seed-1_flow_1_jitter_histogram.txt
 //    - name_seed-1_flow_1_packetsize_histogram.txt
 //    - name_seed-1_KPIs.txt                        text file reporting periodically the KPIs (generated if aggregationDynamicAlgorithm==1)
+//    - name_seed-1_positions.txt                   text file reporting periodically the positions of the STAs
 //    - name_seed-1_AMPDUvalues.txt                 text file reporting periodically the AMPDU values (generated if aggregationDynamicAlgorithm==1)
 //    - name_seed-1_flowmonitor.xml
 //    - name_seed-1_AP-0.2.pcap                     pcap file of the device 2 of AP #0
@@ -1693,7 +1694,7 @@ GetstaRecordMaxSizeAmpdu (uint16_t thisSTAid, uint32_t myverbose)
 
 // Save the position of a STA in a file
 static void
-SavePositionSTA (double period, Ptr<Node> node, NodeContainer myApNodes, std::string fileName)
+SavePositionSTA (double period, Ptr<Node> node, NodeContainer myApNodes, uint16_t portNumber, std::string fileName)
 {
   // print the results to a file (they are written at the end of the file)
   if ( fileName != "" ) {
@@ -1738,6 +1739,7 @@ SavePositionSTA (double period, Ptr<Node> node, NodeContainer myApNodes, std::st
     // print a line in the output file
     ofs << Simulator::Now().GetSeconds() << "\t"
         << (node)->GetId() << "\t"
+        << portNumber << "\t"
         << posSTA.x << "\t"
         << posSTA.y << "\t"
         << (myNearestAP)->GetId() << "\t"
@@ -1751,7 +1753,7 @@ SavePositionSTA (double period, Ptr<Node> node, NodeContainer myApNodes, std::st
         << std::endl;
 
     // re-schedule
-    Simulator::Schedule (Seconds (period), &SavePositionSTA, period, node, myApNodes, fileName);
+    Simulator::Schedule (Seconds (period), &SavePositionSTA, period, node, myApNodes, portNumber, fileName);
   }
 }
 
@@ -1774,6 +1776,7 @@ struct FlowStatistics {
   uint32_t lastIntervalRxPackets;
   uint32_t lastIntervalLostPackets;
   uint32_t lastIntervalRxBytes;
+  uint16_t destinationPort;
 };
 
 struct AllTheFlowStatistics {
@@ -1847,7 +1850,8 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
               if (verboseLevel > 0)
                 std::cout << "\tDelay: " << myAllTheFlowStatistics.FlowStatisticsVoIPUpload[indexForVector].lastIntervalDelay 
                           << "\tThroughput: " << myAllTheFlowStatistics.FlowStatisticsVoIPUpload[indexForVector].lastIntervalRxBytes * 8 / timeInterval
-                          << "\t indexForVector is " << indexForVector;
+                          //<< "\t indexForVector is " << indexForVector
+                          ;
 
               // if the latency of this STA is the highest one so far, update the value of the highest latency
               if (  myAllTheFlowStatistics.FlowStatisticsVoIPUpload[ indexForVector ].lastIntervalDelay > highestLatencyThisAP && 
@@ -1878,7 +1882,8 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
               if (verboseLevel > 0)
                 std::cout << "\tDelay: " << myAllTheFlowStatistics.FlowStatisticsVoIPDownload[ indexForVector ].lastIntervalDelay 
                           << "\tThroughput: " << myAllTheFlowStatistics.FlowStatisticsVoIPDownload[ indexForVector ].lastIntervalRxBytes * 8 / timeInterval
-                          << "\t indexForVector is " << indexForVector;
+                          //<< "\t indexForVector is " << indexForVector
+                          ;
 
               // if the latency of this STA is the highest one so far, update the value of the highest latency
               if (  myAllTheFlowStatistics.FlowStatisticsVoIPDownload[ indexForVector ].lastIntervalDelay > highestLatencyThisAP && 
@@ -1889,7 +1894,8 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
             } else {
               if (verboseLevel > 0) 
                 std::cout << "\tDelay not defined in this period" 
-                          << "\t indexForVector is " << indexForVector;
+                          //<< "\t indexForVector is " << indexForVector
+                          ;
             }
 
 
@@ -1909,7 +1915,8 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
               if (verboseLevel > 0)
               std::cout << "\t\t\t"
                         << "\tThroughput: " << myAllTheFlowStatistics.FlowStatisticsTCPUpload[ indexForVector ].lastIntervalRxBytes * 8 / timeInterval 
-                        << "\t indexForVector is " << indexForVector;
+                        //<< "\t indexForVector is " << indexForVector
+                        ;
 
             } else {
               if (verboseLevel > 0)
@@ -1936,12 +1943,14 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
               if (verboseLevel > 0)
               std::cout << "\t\t\t"
                         << "\tThroughput: " << myAllTheFlowStatistics.FlowStatisticsTCPDownload[ indexForVector ].lastIntervalRxBytes * 8 / timeInterval 
-                        << "\t indexForVector is " << indexForVector;
+                        //<< "\t indexForVector is " << indexForVector
+                        ;
 
             } else {
               if (verboseLevel > 0)
                 std::cout << "\tThroughput not defined in this period" 
-                        << "\t indexForVector is " << indexForVector;
+                          //<< "\t indexForVector is " << indexForVector
+                          ;
             }
 
 
@@ -1963,12 +1972,14 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
               if (verboseLevel > 0)
               std::cout << "\t\t"
                         << "\tThroughput: " << myAllTheFlowStatistics.FlowStatisticsVideoDownload[ indexForVector ].lastIntervalRxBytes * 8 / timeInterval 
-                        << "\t indexForVector is " << indexForVector;
+                        //<< "\t indexForVector is " << indexForVector
+                        ;
 
             } else {
               if (verboseLevel > 0)
                 std::cout << "\tThroughput not defined in this period" 
-                        << "\t indexForVector is " << indexForVector;
+                          //<< "\t indexForVector is " << indexForVector
+                          ;
             }
 
 
@@ -2260,7 +2271,8 @@ void saveKPIs ( std::string mynameKPIFile,
       ofs << Simulator::Now().GetSeconds() << "\t"; // timestamp
       ofs << i << "\t"; // number of the flow
       ofs << "VoIP_upload\t";
-      ofs << myAllTheFlowStatistics.FlowStatisticsVoIPUpload[i].lastIntervalDelay << "\t"
+      ofs << myAllTheFlowStatistics.FlowStatisticsVoIPUpload[i].destinationPort << "\t"
+          << myAllTheFlowStatistics.FlowStatisticsVoIPUpload[i].lastIntervalDelay << "\t"
           << myAllTheFlowStatistics.FlowStatisticsVoIPUpload[i].lastIntervalJitter << "\t"
           << myAllTheFlowStatistics.FlowStatisticsVoIPUpload[i].lastIntervalRxPackets << "\t"
           << myAllTheFlowStatistics.FlowStatisticsVoIPUpload[i].lastIntervalLostPackets << "\t"
@@ -2272,7 +2284,8 @@ void saveKPIs ( std::string mynameKPIFile,
       ofs << i
               + myAllTheFlowStatistics.numberVoIPUploadFlows << "\t"; // number of the flow
       ofs << "VoIP_download\t";
-      ofs << myAllTheFlowStatistics.FlowStatisticsVoIPDownload[i].lastIntervalDelay << "\t"
+      ofs << myAllTheFlowStatistics.FlowStatisticsVoIPDownload[i].destinationPort << "\t"
+          << myAllTheFlowStatistics.FlowStatisticsVoIPDownload[i].lastIntervalDelay << "\t"
           << myAllTheFlowStatistics.FlowStatisticsVoIPDownload[i].lastIntervalJitter << "\t"
           << myAllTheFlowStatistics.FlowStatisticsVoIPDownload[i].lastIntervalRxPackets << "\t"
           << myAllTheFlowStatistics.FlowStatisticsVoIPDownload[i].lastIntervalLostPackets << "\t"
@@ -2285,7 +2298,8 @@ void saveKPIs ( std::string mynameKPIFile,
               + myAllTheFlowStatistics.numberVoIPUploadFlows 
               + myAllTheFlowStatistics.numberVoIPDownloadFlows << "\t"; // number of the flow
       ofs << "TCP_upload\t";
-      ofs << myAllTheFlowStatistics.FlowStatisticsTCPUpload[i].lastIntervalDelay << "\t"
+      ofs << myAllTheFlowStatistics.FlowStatisticsTCPUpload[i].destinationPort << "\t"
+          << myAllTheFlowStatistics.FlowStatisticsTCPUpload[i].lastIntervalDelay << "\t"
           << myAllTheFlowStatistics.FlowStatisticsTCPUpload[i].lastIntervalJitter << "\t"
           << myAllTheFlowStatistics.FlowStatisticsTCPUpload[i].lastIntervalRxPackets << "\t"
           << myAllTheFlowStatistics.FlowStatisticsTCPUpload[i].lastIntervalLostPackets << "\t"
@@ -2299,7 +2313,8 @@ void saveKPIs ( std::string mynameKPIFile,
               + myAllTheFlowStatistics.numberVoIPDownloadFlows 
               + myAllTheFlowStatistics.numberTCPUploadFlows << "\t"; // number of the flow
       ofs << "TCP_download\t";
-      ofs << myAllTheFlowStatistics.FlowStatisticsTCPDownload[i].lastIntervalDelay << "\t"
+      ofs << myAllTheFlowStatistics.FlowStatisticsTCPDownload[i].destinationPort << "\t"
+          << myAllTheFlowStatistics.FlowStatisticsTCPDownload[i].lastIntervalDelay << "\t"
           << myAllTheFlowStatistics.FlowStatisticsTCPDownload[i].lastIntervalJitter << "\t"
           << myAllTheFlowStatistics.FlowStatisticsTCPDownload[i].lastIntervalRxPackets << "\t"
           << myAllTheFlowStatistics.FlowStatisticsTCPDownload[i].lastIntervalLostPackets << "\t"
@@ -2314,7 +2329,8 @@ void saveKPIs ( std::string mynameKPIFile,
               + myAllTheFlowStatistics.numberTCPUploadFlows 
               + myAllTheFlowStatistics.numberTCPDownloadFlows << "\t"; // number of the flow
       ofs << "Video_download\t"; 
-      ofs << myAllTheFlowStatistics.FlowStatisticsVideoDownload[i].lastIntervalDelay << "\t"
+      ofs << myAllTheFlowStatistics.FlowStatisticsVideoDownload[i].destinationPort << "\t"
+          << myAllTheFlowStatistics.FlowStatisticsVideoDownload[i].lastIntervalDelay << "\t"
           << myAllTheFlowStatistics.FlowStatisticsVideoDownload[i].lastIntervalJitter << "\t"
           << myAllTheFlowStatistics.FlowStatisticsVideoDownload[i].lastIntervalRxPackets << "\t"
           << myAllTheFlowStatistics.FlowStatisticsVideoDownload[i].lastIntervalLostPackets << "\t"
@@ -2353,9 +2369,11 @@ int main (int argc, char *argv[]) {
   uint32_t number_of_APs = 4;
   uint32_t number_of_APs_per_row = 2;
   double distance_between_APs = 50.0; // X-axis and Y-axis distance between APs (meters)
-  uint32_t number_of_STAs_per_row = number_of_APs_per_row;
-  double distance_between_STAs = distance_between_APs;
-  double distanceToBorder = 0.5 * distance_between_APs; // It is used for establishing the coordinates of the square where the STA move randomly
+
+  double distance_between_STAs = 0.0;
+  double distanceToBorder = 0.0; // It is used for establishing the coordinates of the square where the STA move randomly
+
+  uint32_t number_of_STAs_per_row;
 
   uint32_t nodeMobility = 0;
   double constantSpeed = 1.5;  // X-axis speed (m/s) in the case the constant speed model is used (https://en.wikipedia.org/wiki/Preferred_walking_speed)
@@ -2515,12 +2533,20 @@ int main (int argc, char *argv[]) {
 
   cmd.Parse (argc, argv);
 
+  // If these parameters have not been set, set the default values
+  if ( distance_between_STAs == 0.0 )
+    distance_between_STAs = distance_between_APs;
+
+  if ( distanceToBorder == 0.0 )
+    distanceToBorder = 0.5 * distance_between_APs; // It is used for establishing the coordinates of the square where the STA move randomly
+
 
   // Other variables
   uint32_t number_of_STAs = numberVoIPupload + numberVoIPdownload + numberTCPupload + numberTCPdownload + numberVideoDownload;   // One STA runs each application
   double x_position_first_STA = x_position_first_AP + x_distance_STA_to_AP;
   double y_position_first_STA = y_position_first_AP + y_distance_STA_to_AP; // by default, the first STA is located some meters above the first AP
   uint32_t number_of_Servers = number_of_STAs;  // the number of servers is the same as the number of STAs. Each server attends a STA
+
 
   //the list of channels is here: https://www.nsnam.org/docs/models/html/wifi-user.html
   // see https://en.wikipedia.org/wiki/List_of_WLAN_channels
@@ -2770,6 +2796,7 @@ int main (int argc, char *argv[]) {
     myFlowStatisticsVoIPUpload[i].acumRxPackets = 0;
     myFlowStatisticsVoIPUpload[i].acumRxBytes = 0;
     myFlowStatisticsVoIPUpload[i].acumLostPackets = 0;
+    myFlowStatisticsVoIPUpload[i].destinationPort = INITIALPORT_VOIP_UPLOAD + i;
   }
 
   // Initialize to 0
@@ -2779,6 +2806,7 @@ int main (int argc, char *argv[]) {
     myFlowStatisticsVoIPDownload[i].acumRxPackets = 0;
     myFlowStatisticsVoIPDownload[i].acumRxBytes = 0;
     myFlowStatisticsVoIPDownload[i].acumLostPackets = 0;
+    myFlowStatisticsVoIPDownload[i].destinationPort = INITIALPORT_VOIP_DOWNLOAD + i;
   }
 
   // Initialize to 0
@@ -2788,6 +2816,7 @@ int main (int argc, char *argv[]) {
     myFlowStatisticsTCPUpload[i].acumRxPackets = 0;
     myFlowStatisticsTCPUpload[i].acumRxBytes = 0;
     myFlowStatisticsTCPUpload[i].acumLostPackets = 0;
+    myFlowStatisticsTCPUpload[i].destinationPort = INITIALPORT_TCP_UPLOAD + i;
   }
 
   // Initialize to 0
@@ -2797,6 +2826,7 @@ int main (int argc, char *argv[]) {
     myFlowStatisticsTCPDownload[i].acumRxPackets = 0;
     myFlowStatisticsTCPDownload[i].acumRxBytes = 0;
     myFlowStatisticsTCPDownload[i].acumLostPackets = 0;
+    myFlowStatisticsTCPDownload[i].destinationPort = INITIALPORT_TCP_DOWNLOAD + i;
   }
 
   // Initialize to 0
@@ -2806,6 +2836,7 @@ int main (int argc, char *argv[]) {
     myFlowStatisticsVideoDownload[i].acumRxPackets = 0;
     myFlowStatisticsVideoDownload[i].acumRxBytes = 0;
     myFlowStatisticsVideoDownload[i].acumLostPackets = 0;
+    myFlowStatisticsVideoDownload[i].destinationPort = INITIALPORT_VIDEO_DOWNLOAD + i;
   }
 
 //  if ( verboseLevel > 1 )
@@ -3164,7 +3195,7 @@ int main (int argc, char *argv[]) {
 
 
   if (timeMonitorKPIs > 0) {
-    // Write the values of the positions to a file
+    // Write the values of the positions of the STAs to a file
     // create a string with the name of the output file
     std::ostringstream namePositionsFile;
 
@@ -3179,6 +3210,7 @@ int main (int argc, char *argv[]) {
     // write the first line in the file (includes the titles of the columns)
     ofs << "timestamp [s]\t"
         << "STA ID\t"
+        << "destinationPort\t"
         << "STA x [m]\t"
         << "STA y [m]\t"
         << "Nearest AP ID\t" 
@@ -3191,8 +3223,54 @@ int main (int argc, char *argv[]) {
         << "distance STA-my AP [m]\t"
         << "\n";
 
-    for (uint32_t j = 0; j < number_of_STAs; ++j) {
-      Simulator::Schedule ( Seconds (INITIALTIMEINTERVAL), &SavePositionSTA, timeMonitorKPIs, staNodes.Get(j), apNodes, namePositionsFile.str());
+    for (uint16_t j = 0; j < numberVoIPupload; ++j) {
+      Simulator::Schedule ( Seconds (INITIALTIMEINTERVAL + timeMonitorKPIs), 
+                            &SavePositionSTA, 
+                            timeMonitorKPIs, 
+                            staNodes.Get(j), 
+                            apNodes, 
+                            INITIALPORT_VOIP_UPLOAD + j, 
+                            namePositionsFile.str());
+    }
+
+    for (uint16_t j = 0; j < numberVoIPdownload; ++j) {
+      Simulator::Schedule ( Seconds (INITIALTIMEINTERVAL + timeMonitorKPIs), 
+                            &SavePositionSTA, 
+                            timeMonitorKPIs, 
+                            staNodes.Get(j), 
+                            apNodes, 
+                            INITIALPORT_VOIP_DOWNLOAD + j, 
+                            namePositionsFile.str());
+    }
+
+    for (uint16_t j = 0; j < numberTCPupload; ++j) {
+      Simulator::Schedule ( Seconds (INITIALTIMEINTERVAL + timeMonitorKPIs), 
+                            &SavePositionSTA, 
+                            timeMonitorKPIs, 
+                            staNodes.Get(j), 
+                            apNodes, 
+                            INITIALPORT_TCP_UPLOAD + j, 
+                            namePositionsFile.str());
+    }
+
+    for (uint16_t j = 0; j < numberTCPdownload; ++j) {
+      Simulator::Schedule ( Seconds (INITIALTIMEINTERVAL + timeMonitorKPIs), 
+                            &SavePositionSTA, 
+                            timeMonitorKPIs, 
+                            staNodes.Get(j), 
+                            apNodes, 
+                            INITIALPORT_TCP_DOWNLOAD + j, 
+                            namePositionsFile.str());
+    }
+
+    for (uint16_t j = 0; j < numberVideoDownload; ++j) {
+      Simulator::Schedule ( Seconds (INITIALTIMEINTERVAL + timeMonitorKPIs), 
+                            &SavePositionSTA, 
+                            timeMonitorKPIs, 
+                            staNodes.Get(j), 
+                            apNodes, 
+                            INITIALPORT_VIDEO_DOWNLOAD + j, 
+                            namePositionsFile.str());
     }
   }
 
@@ -4598,6 +4676,7 @@ int main (int argc, char *argv[]) {
     ofs << "timestamp [s]" << "\t"
         << "flow ID" << "\t"
         << "application" << "\t"
+        << "destinationPort" << "\t"
         << "delay [s]" << "\t"
         << "jitter [s]" << "\t" 
         << "numRxPackets" << "\t"
