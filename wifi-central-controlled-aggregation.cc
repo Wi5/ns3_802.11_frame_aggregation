@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v176
+ * v177
  * Developed and tested for ns-3.26, although the simulation crashes in some cases. One example:
  *    - more than one AP
  *    - set the RtsCtsThreshold below 48000
@@ -55,12 +55,6 @@ Two possibilities:
   see https://www.nsnam.org/doxygen/classns3_1_1_spectrum_wifi_phy.html#a948c6d197accf2028529a2842ec68816
 
 2) To separate this file into a number of them, using .h files.
-
-3) Modify the deadlines in ns-3.26/src/internet/model/arp-cache.cc
-    I have gone to this file and put 
-      - AliveTimeout as 12000 instead of 120
-      - DeadTimeout  as 10000 instead of 100
-
 */
 
 //
@@ -102,7 +96,7 @@ Two possibilities:
 //
 //
 //
-// topology = 1 (DEFAULT)
+// topology = 1
 //
 //              (*)
 //            +--|-+                      10.0.0.0                       
@@ -124,7 +118,7 @@ Two possibilities:
 //
 //
 //
-// topology = 2
+// topology = 2 (DEFAULT)
 //
 //              (*)
 //            +--|-+                      10.0.0.0                        10.1.0.0
@@ -2380,7 +2374,7 @@ int main (int argc, char *argv[]) {
   uint16_t aggregationDynamicAlgorithm = 0;  // Set this to 1 in order to make the central control algorithm dynamically modifying AMPDU run
   double latencyBudget = 0.0;  // This is the maximum latency (seconds) tolerated by VoIP applications
 
-  uint16_t topology = 1;    // 0: all the server applications are in a single server
+  uint16_t topology = 2;    // 0: all the server applications are in a single server
                             // 1: each server application is in a node connected to the hub
                             // 2: each server application is in a node behind the router, connected to it with a P2P connection
 
@@ -2836,6 +2830,11 @@ int main (int argc, char *argv[]) {
 //  if ( verboseLevel > 1 )
 //    ArpCache.EnableLogComponents ();  // Turn on all Arp logging
 //    LogComponentEnable("ArpCache", LOG_LEVEL_ALL);
+
+  Config::SetDefault ("ns3::ArpCache::AliveTimeout", TimeValue (Seconds (1000)));
+  Config::SetDefault ("ns3::ArpCache::DeadTimeout", TimeValue (Seconds (5)));
+
+
 
   /******** create the node containers *********/
   NodeContainer apNodes;
@@ -3328,8 +3327,11 @@ int main (int argc, char *argv[]) {
   // wifiModel == 1
   } else {
 
-    //Bug 2460: CcaMode1Threshold default should be set to -62 dBm when using Spectrum
-    //Config::SetDefault ("ns3::WifiPhy::CcaMode1Threshold", DoubleValue (-62.0));
+    // The energy of a received signal should be higher than this threshold (dbm) to allow the PHY layer to declare CCA BUSY state
+    Config::SetDefault ("ns3::WifiPhy::CcaMode1Threshold", DoubleValue (-90.0));
+    // The energy of a received signal should be higher than this threshold (dbm) to allow the PHY layer to detect the signal.
+    Config::SetDefault ("ns3::WifiPhy::EnergyDetectionThreshold", DoubleValue (-90.0));
+    
 
     // Use multimodel spectrum channel, https://www.nsnam.org/doxygen/classns3_1_1_multi_model_spectrum_channel.html
     Ptr<MultiModelSpectrumChannel> spectrumChannel = CreateObject<MultiModelSpectrumChannel> ();
