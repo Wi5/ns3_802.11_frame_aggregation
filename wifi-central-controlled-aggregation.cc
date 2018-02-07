@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v175
+ * v176
  * Developed and tested for ns-3.26, although the simulation crashes in some cases. One example:
  *    - more than one AP
  *    - set the RtsCtsThreshold below 48000
@@ -279,7 +279,7 @@ void ChangeFrequencyLocal
         Ptr<SpectrumWifiPhy> phy0 = wifidevice->GetPhy()->GetSpectrumPhy();
         phy0->SetChannelNumber (channel);          
       }
-*/
+      */
       if (myverbose > 1)
         std::cout << Simulator::Now().GetSeconds()
                   << "\t[ChangeFrequencyLocal]\tChanged channel on STA with MAC " << deviceslink.Get (i)->GetAddress () 
@@ -694,7 +694,7 @@ static void printTime (double period, std::string myoutputFileName, std::string 
   std::cout << Simulator::Now().GetSeconds() << "\t" << myoutputFileName << "_" << myoutputFileSurname << '\n';
 
   // re-schedule 
-  Simulator::Schedule (Seconds (period), &printTime, period, myoutputFileName, myoutputFileName);
+  Simulator::Schedule (Seconds (period), &printTime, period, myoutputFileName, myoutputFileSurname);
 }
 
 
@@ -1283,7 +1283,7 @@ STA_record::SetAssoc (std::string context, Mac48Address AP_MAC_address)
                     << "\tset to " << staRecordMaxSizeAmpdu 
                     << "\t(limited)" << std::endl;
 
-  /*      for (STA_recordVector::const_iterator index = assoc_vector.begin (); index != assoc_vector.end (); index++) {
+  /*    for (STA_recordVector::const_iterator index = assoc_vector.begin (); index != assoc_vector.end (); index++) {
 
           if ( (*index)->GetMac () == AP_MAC_address ) {
               ModifyAmpdu ((*index)->GetStaid(), 0, 1);  // modify the AMPDU in the STA node
@@ -1974,21 +1974,15 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
                         << "\tThroughput: " << myAllTheFlowStatistics.FlowStatisticsVideoDownload[ indexForVector ].lastIntervalRxBytes * 8 / timeInterval 
                         //<< "\t indexForVector is " << indexForVector
                         ;
-
             } else {
               if (verboseLevel > 0)
                 std::cout << "\tThroughput not defined in this period" 
                           //<< "\t indexForVector is " << indexForVector
                           ;
             }
-
-
-
           }
-
           if (verboseLevel > 0)           
             std::cout << "\n";
-
         }
 
       // this STA is not associated to any AP
@@ -2030,6 +2024,18 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
         newAmpduValue = maxAmpduSize;
     }
 
+    // write the AMPDU value to a file (it is written at the end of the file)
+    if ( mynameAMPDUFile != "" ) {
+
+      std::ofstream ofsAMPDU;
+      ofsAMPDU.open ( mynameAMPDUFile, std::ofstream::out | std::ofstream::app); // with "trunc" Any contents that existed in the file before it is open are discarded. with "app", all output operations happen at the end of the file, appending to its existing contents
+
+      ofsAMPDU << Simulator::Now().GetSeconds() << "\t";    // timestamp
+      ofsAMPDU << GetAnAP_Id((*indexAP)->GetMac()) << "\t"; // write the ID of the AP to the file
+      ofsAMPDU << "AP\t";                                   // type of node
+      ofsAMPDU << "-\t";                                    // It is not associated to any AP, since it is an AP
+      ofsAMPDU << newAmpduValue << "\n";                    // new value of the AMPDU
+    }
 
     // Check if the AMPDU has to be modified or not
     if (newAmpduValue == oldAmpduValue) {
@@ -2052,7 +2058,7 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
       Modify_AP_Record (GetAnAP_Id((*indexAP)->GetMac()), (*indexAP)->GetMac(), newAmpduValue );
 
       // Report the AMPDU modification
-      if (verboseLevel > 0)
+      if (verboseLevel > 0) {
         std::cout << Simulator::Now ().GetSeconds()
                   << "\t[adjustAMPDU]"
                   //<< "\tAP #" << GetAnAP_Id((*indexAP)->GetMac())
@@ -2065,18 +2071,6 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
           std::cout << "\tAMPDU of the AP reduced to " << (*indexAP)->GetMaxSizeAmpdu();
 
         std::cout << std::endl;
-
-      // write the new AMPDU value to a file (it is written at the end of the file)
-      if ( mynameAMPDUFile != "" ) {
-
-        std::ofstream ofsAMPDU;
-        ofsAMPDU.open ( mynameAMPDUFile, std::ofstream::out | std::ofstream::app); // with "trunc" Any contents that existed in the file before it is open are discarded. with "app", all output operations happen at the end of the file, appending to its existing contents
-
-        ofsAMPDU << Simulator::Now().GetSeconds() << "\t";    // timestamp
-        ofsAMPDU << GetAnAP_Id((*indexAP)->GetMac()) << "\t"; // write the ID of the AP to the file
-        ofsAMPDU << "AP\t";                                   // type of node
-        ofsAMPDU << "-\t";                                    // It is not associated to any AP, since it is an AP
-        ofsAMPDU << newAmpduValue << "\n";                    // new value of the AMPDU
       }
 
 
@@ -2525,7 +2519,7 @@ int main (int argc, char *argv[]) {
   cmd.AddValue ("writeMobility", "Write mobility trace", writeMobility); // creates an output file with the positions of the nodes
   cmd.AddValue ("enablePcap", "Enable/disable pcap file generation", enablePcap);
   cmd.AddValue ("verboseLevel", "Tell echo applications to log if true", verboseLevel);
-  cmd.AddValue ("printSeconds", "Periodically print simulation time", printSeconds);
+  cmd.AddValue ("printSeconds", "Periodically print simulation time (even in verboseLevel=0)", printSeconds);
   cmd.AddValue ("generateHistograms", "Generate histograms?", generateHistograms);
   cmd.AddValue ("outputFileName", "First characters to be used in the name of the output files", outputFileName);
   cmd.AddValue ("outputFileSurname", "Other characters to be used in the name of the output files (not in the average one)", outputFileSurname);
