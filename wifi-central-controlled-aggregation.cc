@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v177
+ * v178
  * Developed and tested for ns-3.26, although the simulation crashes in some cases. One example:
  *    - more than one AP
  *    - set the RtsCtsThreshold below 48000
@@ -2665,6 +2665,7 @@ int main (int argc, char *argv[]) {
   if (error) return 0;
 
   
+  // Fill the variable with the available channels
   uint8_t availableChannels[numChannels];
   for (uint32_t i = 0; i < numChannels; ++i) {
     if (channelWidth == 20)
@@ -2769,14 +2770,7 @@ int main (int argc, char *argv[]) {
   myAllTheFlowStatistics.FlowStatisticsTCPDownload = myFlowStatisticsTCPDownload;
   myAllTheFlowStatistics.FlowStatisticsVideoDownload = myFlowStatisticsVideoDownload;
 
-/*
-  uint16_t numberOfFlows[5];
-  numberOfFlows[0] = numberVoIPupload;
-  numberOfFlows[1] = numberVoIPdownload;
-  numberOfFlows[2] = numberTCPupload;
-  numberOfFlows[3] = numberTCPdownload;
-  numberOfFlows[4] = numberVideoDownload;
-*/
+
   // Initialize to 0
   for (uint16_t i = 0 ; i < numberVoIPupload; i++) {
     myFlowStatisticsVoIPUpload[i].acumDelay = 0.0;
@@ -2827,12 +2821,16 @@ int main (int argc, char *argv[]) {
     myFlowStatisticsVideoDownload[i].destinationPort = INITIALPORT_VIDEO_DOWNLOAD + i;
   }
 
-//  if ( verboseLevel > 1 )
-//    ArpCache.EnableLogComponents ();  // Turn on all Arp logging
-//    LogComponentEnable("ArpCache", LOG_LEVEL_ALL);
 
+  // ARP parameters
+
+/*
   Config::SetDefault ("ns3::ArpCache::AliveTimeout", TimeValue (Seconds (1000)));
   Config::SetDefault ("ns3::ArpCache::DeadTimeout", TimeValue (Seconds (5)));
+*/
+  Config::SetDefault ("ns3::ArpCache::AliveTimeout", TimeValue (Seconds (5)));
+  Config::SetDefault ("ns3::ArpCache::DeadTimeout", TimeValue (Seconds (0.1)));
+  Config::SetDefault ("ns3::ArpCache::MaxRetries", UintegerValue (30));
 
 
 
