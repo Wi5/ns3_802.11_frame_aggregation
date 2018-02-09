@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v178
+ * v179
  * Developed and tested for ns-3.26, although the simulation crashes in some cases. One example:
  *    - more than one AP
  *    - set the RtsCtsThreshold below 48000
@@ -2828,10 +2828,14 @@ int main (int argc, char *argv[]) {
   Config::SetDefault ("ns3::ArpCache::AliveTimeout", TimeValue (Seconds (1000)));
   Config::SetDefault ("ns3::ArpCache::DeadTimeout", TimeValue (Seconds (5)));
 */
+
   Config::SetDefault ("ns3::ArpCache::AliveTimeout", TimeValue (Seconds (5)));
   Config::SetDefault ("ns3::ArpCache::DeadTimeout", TimeValue (Seconds (0.1)));
   Config::SetDefault ("ns3::ArpCache::MaxRetries", UintegerValue (30));
-
+/*
+  Config::SetDefault ("ns3::ArpCache::DeadTimeout", TimeValue (Seconds (0.1)));
+  Config::SetDefault ("ns3::ArpCache::MaxRetries", UintegerValue (100));
+*/
 
 
   /******** create the node containers *********/
@@ -3326,9 +3330,9 @@ int main (int argc, char *argv[]) {
   } else {
 
     // The energy of a received signal should be higher than this threshold (dbm) to allow the PHY layer to declare CCA BUSY state
-    Config::SetDefault ("ns3::WifiPhy::CcaMode1Threshold", DoubleValue (-90.0));
+    Config::SetDefault ("ns3::WifiPhy::CcaMode1Threshold", DoubleValue (-95.0));
     // The energy of a received signal should be higher than this threshold (dbm) to allow the PHY layer to detect the signal.
-    Config::SetDefault ("ns3::WifiPhy::EnergyDetectionThreshold", DoubleValue (-90.0));
+    Config::SetDefault ("ns3::WifiPhy::EnergyDetectionThreshold", DoubleValue (-95.0));
     
 
     // Use multimodel spectrum channel, https://www.nsnam.org/doxygen/classns3_1_1_multi_model_spectrum_channel.html
