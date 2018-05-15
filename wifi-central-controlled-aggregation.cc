@@ -2829,8 +2829,8 @@ int main (int argc, char *argv[]) {
   Config::SetDefault ("ns3::ArpCache::DeadTimeout", TimeValue (Seconds (5)));
 */
 
-  Config::SetDefault ("ns3::ArpCache::AliveTimeout", TimeValue (Seconds (5)));
-  Config::SetDefault ("ns3::ArpCache::DeadTimeout", TimeValue (Seconds (0.1)));
+  Config::SetDefault ("ns3::ArpCache::AliveTimeout", TimeValue (Seconds (600)));
+  Config::SetDefault ("ns3::ArpCache::DeadTimeout", TimeValue (Seconds (0.01)));
   Config::SetDefault ("ns3::ArpCache::MaxRetries", UintegerValue (30));
 /*
   Config::SetDefault ("ns3::ArpCache::DeadTimeout", TimeValue (Seconds (0.1)));
@@ -3744,12 +3744,11 @@ int main (int argc, char *argv[]) {
   // wired connections
   // create the ethernet channel for connecting the APs and the router
   CsmaHelper csma;
-  //csma.SetChannelAttribute ("DataRate", StringValue ("100000Mbps")); // to avoid this being the bottleneck
+  //csma.SetChannelAttribute ("DataRate", StringValue ("10000Mbps")); // to avoid this being the bottleneck
   csma.SetChannelAttribute ("DataRate", DataRateValue (100000000000)); // 100 gbps
   // set the speed-of-light delay of the channel to 6560 nano-seconds (arbitrarily chosen as 1 nanosecond per foot over a 100 meter segment)
   csma.SetChannelAttribute ("Delay", TimeValue (NanoSeconds (6560)));
-
-
+  //csma.SetChannelAttribute ("Delay", TimeValue (NanoSeconds (65600)));
 
   // https://www.nsnam.org/doxygen/classns3_1_1_bridge_helper.html#aba53f6381b7adda00d9163840b072fa6
   // This method creates an ns3::BridgeNetDevice with the attributes configured by BridgeHelper::SetDeviceAttribute, 
@@ -4564,7 +4563,7 @@ int main (int argc, char *argv[]) {
 
 
     // pcap trace of the hub ports. not necessary
-    if (false) {
+    if (true) {
       if (topology == 0) {
         // pcap trace of the hub: it has number_of_APs + 1 devices (the one connected to the server)
         for (uint32_t i=0; i < number_of_APs + 1; i++)
