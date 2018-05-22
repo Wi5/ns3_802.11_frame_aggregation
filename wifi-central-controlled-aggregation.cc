@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v181
+ * v182
  * Developed and tested for ns-3.26, although the simulation crashes in some cases. One example:
  *    - more than one AP
  *    - set the RtsCtsThreshold below 48000
@@ -3228,7 +3228,7 @@ int main (int argc, char *argv[]) {
                             namePositionsFile.str());
     }
 
-    for (uint16_t j = 0; j < numberVoIPdownload; ++j) {
+    for (uint16_t j = numberVoIPupload; j < numberVoIPupload + numberVoIPdownload; ++j) {
       Simulator::Schedule ( Seconds (INITIALTIMEINTERVAL + timeMonitorKPIs), 
                             &SavePositionSTA, 
                             timeMonitorKPIs, 
@@ -3238,7 +3238,7 @@ int main (int argc, char *argv[]) {
                             namePositionsFile.str());
     }
 
-    for (uint16_t j = 0; j < numberTCPupload; ++j) {
+    for (uint16_t j = numberVoIPupload + numberVoIPdownload; j < numberVoIPupload + numberVoIPdownload + numberTCPupload; ++j) {
       Simulator::Schedule ( Seconds (INITIALTIMEINTERVAL + timeMonitorKPIs), 
                             &SavePositionSTA, 
                             timeMonitorKPIs, 
@@ -3248,7 +3248,7 @@ int main (int argc, char *argv[]) {
                             namePositionsFile.str());
     }
 
-    for (uint16_t j = 0; j < numberTCPdownload; ++j) {
+    for (uint16_t j = numberVoIPupload + numberVoIPdownload + numberTCPupload; j < numberVoIPupload + numberVoIPdownload + numberTCPupload + numberTCPdownload; ++j) {
       Simulator::Schedule ( Seconds (INITIALTIMEINTERVAL + timeMonitorKPIs), 
                             &SavePositionSTA, 
                             timeMonitorKPIs, 
@@ -3258,7 +3258,7 @@ int main (int argc, char *argv[]) {
                             namePositionsFile.str());
     }
 
-    for (uint16_t j = 0; j < numberVideoDownload; ++j) {
+    for (uint16_t j = numberVoIPupload + numberVoIPdownload + numberTCPupload + numberTCPdownload; j < numberVoIPupload + numberVoIPdownload + numberTCPupload + numberTCPdownload + numberVideoDownload; ++j) {
       Simulator::Schedule ( Seconds (INITIALTIMEINTERVAL + timeMonitorKPIs), 
                             &SavePositionSTA, 
                             timeMonitorKPIs, 
