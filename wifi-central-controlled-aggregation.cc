@@ -33,14 +33,8 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v182
- * Developed and tested for ns-3.26, although the simulation crashes in some cases. One example:
- *    - more than one AP
- *    - set the RtsCtsThreshold below 48000
- *    - AMPDU aggregation On
- *    - Ideal or Minstrel wifi manager
- *
- *  This problem does not exist in ns3-devel (ns-3-dev-444dfd0968eb, Jun 2017).
+ * v183
+ * Developed and tested for ns-3.27, https://www.nsnam.org/ns-3-27/
  */
 
 
@@ -246,6 +240,9 @@ using namespace ns3;
 
 #define INITIALTIMEINTERVAL 1.0 // time before the applications start (seconds). The same amount of time is added at the end
 
+#define HANDOFFMETHOD 0     // IF it is 1 it means that ns3 is in charge of the channel switch of the STA for performing handoffs 
+                            // If it is 0 it means that the method is implemented in this script
+
 // Define a log component
 NS_LOG_COMPONENT_DEFINE ("SimpleMpduAggregation");
 
@@ -256,29 +253,35 @@ NS_LOG_COMPONENT_DEFINE ("SimpleMpduAggregation");
 void ChangeFrequencyLocal
 (NetDeviceContainer deviceslink, uint8_t channel, uint32_t mywifiModel, uint32_t myverbose) {
 
-  for (uint32_t i = 0; i < deviceslink.GetN (); i++)
-    {
-      Ptr<WifiNetDevice> wifidevice = DynamicCast<WifiNetDevice> (deviceslink.Get(i));
+  for (uint32_t i = 0; i < deviceslink.GetN (); i++) {
 
-      if (wifidevice == 0) std::cout << "[ChangeFrequencyLocal]\tWARNING: wifidevice IS NULL" << '\n';
+    if (myverbose > 1)
+      std::cout << Simulator::Now().GetSeconds()
+                << "\t[ChangeFrequencyLocal]\tChanging channel on STA with MAC " << deviceslink.Get (i)->GetAddress () 
+                << "  to:  " << uint16_t(channel) << std::endl;
 
+    Ptr<WifiNetDevice> wifidevice = DynamicCast<WifiNetDevice> (deviceslink.Get(i));
+
+    if (wifidevice == 0) std::cout << "[ChangeFrequencyLocal]\tWARNING: wifidevice IS NULL" << '\n';
+
+    Ptr<WifiPhy> phy0 = wifidevice->GetPhy();
+
+//      phy0->SetChannelNumber (channel); //https://www.nsnam.org/doxygen/classns3_1_1_wifi_phy.html#a2d13cf6ae4c185cae8516516afe4a32a
+  
+
+    if (mywifiModel == 0) {
       Ptr<WifiPhy> phy0 = wifidevice->GetPhy();
-
-      phy0->SetChannelNumber (channel); //https://www.nsnam.org/doxygen/classns3_1_1_wifi_phy.html#a2d13cf6ae4c185cae8516516afe4a32a
-      /*
-      if (mywifiModel == 0) {
-        Ptr<WifiPhy> phy0 = wifidevice->GetPhy();
-        phy0->SetChannelNumber (channel);
-      } else {
-        Ptr<SpectrumWifiPhy> phy0 = wifidevice->GetPhy()->GetSpectrumPhy();
-        phy0->SetChannelNumber (channel);          
-      }
-      */
-      if (myverbose > 1)
-        std::cout << Simulator::Now().GetSeconds()
-                  << "\t[ChangeFrequencyLocal]\tChanged channel on STA with MAC " << deviceslink.Get (i)->GetAddress () 
-                  << "  to:  " << uint16_t(channel) << std::endl;
+      phy0->SetChannelNumber (channel);
+    } else {
+      Ptr<SpectrumWifiPhy> phy0 = wifidevice->GetPhy()->GetObject<SpectrumWifiPhy>(); 
+      phy0->SetChannelNumber (channel);          
     }
+    
+    if (myverbose > 1)
+      std::cout << Simulator::Now().GetSeconds()
+                << "\t[ChangeFrequencyLocal]\tChanged channel on STA with MAC " << deviceslink.Get (i)->GetAddress () 
+                << "  to:  " << uint16_t(channel) << std::endl;
+  }
 }
 
 
@@ -598,6 +601,7 @@ GetPosition (Ptr<Node> node)
   Ptr<MobilityModel> mobility = node->GetObject<MobilityModel> ();
   return mobility->GetPosition ();
 }
+
 
 // obtain the nearest AP of a STA
 static Ptr<Node>
@@ -1528,7 +1532,11 @@ STA_record::UnsetAssoc (std::string context, Mac48Address AP_MAC_address)
      
         uint8_t newChannel = GetAP_WirelessChannel ( (nearest)->GetId(), staRecordVerboseLevel );
 
-        ChangeFrequencyLocal (thisDevice, newChannel, staRecordwifiModel, staRecordVerboseLevel);
+
+//if (wifi_mac.IsWaitAssocResp() != false ) {
+
+        if ( (HANDOFFMETHOD == 0) /*&& (wifiModel==0) */) //FIXME
+          ChangeFrequencyLocal (thisDevice, newChannel, staRecordwifiModel, staRecordVerboseLevel);
 
         if (staRecordVerboseLevel > 0)
           std::cout << Simulator::Now ().GetSeconds() 
@@ -1537,6 +1545,7 @@ STA_record::UnsetAssoc (std::string context, Mac48Address AP_MAC_address)
                     << ". Channel set to " << uint16_t (newChannel) 
                     << ", i.e. the channel of the nearest AP (AP #" << (nearest)->GetId()
                     << ")" << std::endl << std::endl;
+//}
 
       //}
     } else { // numChannels == 1
@@ -2823,19 +2832,9 @@ int main (int argc, char *argv[]) {
 
 
   // ARP parameters
-
-/*
-  Config::SetDefault ("ns3::ArpCache::AliveTimeout", TimeValue (Seconds (1000)));
-  Config::SetDefault ("ns3::ArpCache::DeadTimeout", TimeValue (Seconds (5)));
-*/
-
-  Config::SetDefault ("ns3::ArpCache::AliveTimeout", TimeValue (Seconds (600)));
-  Config::SetDefault ("ns3::ArpCache::DeadTimeout", TimeValue (Seconds (0.01)));
-  Config::SetDefault ("ns3::ArpCache::MaxRetries", UintegerValue (30));
-/*
+  Config::SetDefault ("ns3::ArpCache::AliveTimeout", TimeValue (Seconds (5)));
   Config::SetDefault ("ns3::ArpCache::DeadTimeout", TimeValue (Seconds (0.1)));
   Config::SetDefault ("ns3::ArpCache::MaxRetries", UintegerValue (100));
-*/
 
 
   /******** create the node containers *********/
@@ -2934,6 +2933,7 @@ int main (int argc, char *argv[]) {
 
   Ipv4AddressHelper ipAddressesSegmentB;    // The servers are behind the router, so they are in other network
   ipAddressesSegmentB.SetBase ("10.1.0.0", "255.255.0.0");
+
 
 
   /******** mobility *******/
@@ -3177,7 +3177,7 @@ int main (int argc, char *argv[]) {
                             &ReportPosition, 
                             timeMonitorKPIs, 
                             staNodes.Get(j), 
-                            number_of_APs + number_of_Servers + j, 
+                            number_of_APs + j, 
                             1, 
                             verboseLevel, 
                             apNodes);
@@ -3609,25 +3609,48 @@ int main (int argc, char *argv[]) {
     } else {
       // The VoIP STAs do NOT aggregate
       if ( j < numberVoIPupload + numberVoIPdownload ) {
-        wifiMac.SetType ( "ns3::StaWifiMac",
-                          "Ssid", SsidValue (stassid),
-                          "QosSupported", BooleanValue (true),
-                          //"ActiveProbing", BooleanValue (true), // If you set this, STAs will not connect when aggregation algorithm is running
-                          "BE_MaxAmpduSize", UintegerValue (0),
-                          "BK_MaxAmpduSize", UintegerValue (0),
-                          "VI_MaxAmpduSize", UintegerValue (0),
-                          "VO_MaxAmpduSize", UintegerValue (0)); //Disable A-MPDU in the STAs
+        if ( (HANDOFFMETHOD == 1) && (wifiModel == 1) ) {
+          wifiMac.SetType ( "ns3::StaWifiMac",
+                            "Ssid", SsidValue (stassid),
+                            "QosSupported", BooleanValue (true),
+                            "ActiveProbing", BooleanValue (true), // If you set this, STAs will not connect when aggregation algorithm is running
+                            "BE_MaxAmpduSize", UintegerValue (0),
+                            "BK_MaxAmpduSize", UintegerValue (0),
+                            "VI_MaxAmpduSize", UintegerValue (0),
+                            "VO_MaxAmpduSize", UintegerValue (0)); //Disable A-MPDU in the STAs
+        } else {
+          wifiMac.SetType ( "ns3::StaWifiMac",
+                    "Ssid", SsidValue (stassid),
+                    "QosSupported", BooleanValue (true),
+                    //"ActiveProbing", BooleanValue (true), // If you set this, STAs will not connect when aggregation algorithm is running
+                    "BE_MaxAmpduSize", UintegerValue (0),
+                    "BK_MaxAmpduSize", UintegerValue (0),
+                    "VI_MaxAmpduSize", UintegerValue (0),
+                    "VO_MaxAmpduSize", UintegerValue (0)); //Disable A-MPDU in the STAs
+        }
       // The TCP STAs do aggregate
       } else {
-        wifiMac.SetType ( "ns3::StaWifiMac",
-                          "Ssid", SsidValue (stassid),
-                          "QosSupported", BooleanValue (true),
-                          //"ActiveProbing", BooleanValue (true), // If you set this, STAs will not connect when aggregation algorithm is running
-                          "BE_MaxAmpduSize", UintegerValue (maxAmpduSize),
-                          "BK_MaxAmpduSize", UintegerValue (maxAmpduSize),
-                          "VI_MaxAmpduSize", UintegerValue (maxAmpduSize),
-                          "VO_MaxAmpduSize", UintegerValue (maxAmpduSize));
+        if ( (HANDOFFMETHOD == 1) && (wifiModel == 1) ) {
+          wifiMac.SetType ( "ns3::StaWifiMac",
+                            "Ssid", SsidValue (stassid),
+                            "QosSupported", BooleanValue (true),
+                            "ActiveProbing", BooleanValue (true), // If you set this, STAs will not connect when aggregation algorithm is running
+                            "BE_MaxAmpduSize", UintegerValue (maxAmpduSize),
+                            "BK_MaxAmpduSize", UintegerValue (maxAmpduSize),
+                            "VI_MaxAmpduSize", UintegerValue (maxAmpduSize),
+                            "VO_MaxAmpduSize", UintegerValue (maxAmpduSize));
+        } else {
+          wifiMac.SetType ( "ns3::StaWifiMac",
+                            "Ssid", SsidValue (stassid),
+                            "QosSupported", BooleanValue (true),
+                            //"ActiveProbing", BooleanValue (true), // If you set this, STAs will not connect when aggregation algorithm is running
+                            "BE_MaxAmpduSize", UintegerValue (maxAmpduSize),
+                            "BK_MaxAmpduSize", UintegerValue (maxAmpduSize),
+                            "VI_MaxAmpduSize", UintegerValue (maxAmpduSize),
+                            "VO_MaxAmpduSize", UintegerValue (maxAmpduSize));          
+        }
       }
+
 
 /*    // Other options (Enable AMSDU, and also enable AMSDU and AMPDU at the same time)
       wifMac.SetType ( "ns3::StaWifiMac",
@@ -3716,23 +3739,51 @@ int main (int argc, char *argv[]) {
 
 
   // EXPERIMENTAL: on each STA, add support for other operational channels
-  // This is only needed if more than 1 channel is in use, and if wifiModel == 1
-  if (numChannels > 1 && wifiModel == 1) {
-    Ptr<SpectrumWifiPhy> wifiPhyPtrClient;
-    for (uint32_t j = 0; j < number_of_STAs; j++) {
-      wifiPhyPtrClient = staDevices[j].Get(0)->GetObject<WifiNetDevice>()->GetPhy()->GetObject<SpectrumWifiPhy>();
+  if ( (HANDOFFMETHOD == 1) && (wifiModel == 1) ) {
+    // This is only needed if more than 1 channel is in use, and if wifiModel == 1
+    if (numChannels > 1 && wifiModel == 1) {
+      Ptr<SpectrumWifiPhy> wifiPhyPtrClient;
+      //Ptr<StaWifiMac> myStaWifiMac;
 
-      if (verboseLevel > 0)
-        std::cout << "STA\t#" << staNodes.Get(j)->GetId()
-                  << "\tAdded operational channels: ";
+      for (uint32_t j = 0; j < number_of_STAs; j++) {
+        wifiPhyPtrClient = staDevices[j].Get(0)->GetObject<WifiNetDevice>()->GetPhy()->GetObject<SpectrumWifiPhy>();
 
-      for (uint32_t k = 0; k < numChannels; k++) {
-        (*wifiPhyPtrClient).AddOperationalChannel ( availableChannels[k] );
         if (verboseLevel > 0)
-          std::cout << uint16_t(availableChannels[k]) << " "; 
+          std::cout << "STA\t#" << staNodes.Get(j)->GetId()
+                    << "\tAdded operational channels: ";
+
+        for (uint32_t k = 0; k < numChannels; k++) {
+          (*wifiPhyPtrClient).AddOperationalChannel ( availableChannels[k] );
+          if (verboseLevel > 0)
+            std::cout << uint16_t(availableChannels[k]) << " "; 
+        }
+        if (verboseLevel > 0)
+          std::cout << '\n';
+
+
+        //myStaWifiMac = staDevices[j].Get(0)->GetObject<WifiNetDevice>()->GetMac()->GetObject<StaWifiMac>();
+        //(*myStaWifiMac).TryToEnsureAssociated();
+        //if ( (*myStaWifiMac).IsAssociated() )
+        //  std::cout << "######################" << '\n';
       }
-      if (verboseLevel > 0)
-        std::cout << '\n'; 
+    }
+  }
+
+  // EXPERIMENTAL: on each STA, clear all the operational channels https://www.nsnam.org/doxygen/classns3_1_1_spectrum_wifi_phy.html#acb3f2f3a32236fa5fdeed1986b28fe04
+  // it doesn't work
+  if (false) {
+    if (numChannels > 1 && wifiModel == 1) {
+      Ptr<SpectrumWifiPhy> wifiPhyPtrClient;
+      for (uint32_t j = 0; j < number_of_STAs; j++) {
+        wifiPhyPtrClient = staDevices[j].Get(0)->GetObject<WifiNetDevice>()->GetPhy()->GetObject<SpectrumWifiPhy>();
+
+        (*wifiPhyPtrClient).ClearOperationalChannelList ();
+
+        if (verboseLevel > 0)
+          std::cout << "STA\t#" << staNodes.Get(j)->GetId()
+                    << "\tCleared operational channels in STA #" << number_of_APs + j
+                    << '\n';
+      }
     }
   }
 
