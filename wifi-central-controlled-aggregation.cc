@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v183
+ * v184
  * Developed and tested for ns-3.27, https://www.nsnam.org/ns-3-27/
  */
 
@@ -647,45 +647,6 @@ nearestAp (NodeContainer APs, Ptr<Node> mySTA, int myverbose)
 }
 
 
-// Print the position of a node
-// taken from https://www.nsnam.org/doxygen/wifi-ap_8cc.html
-static void
-ReportPosition (double period, Ptr<Node> node, int i, int type, int myverbose, NodeContainer myApNodes)
-{
-  Vector posSTA = GetPosition (node);
-
-  if (myverbose > 2)
-    {
-      // type = 0 means it will write the position of an AP
-      if (type == 0) {
-        std::cout << Simulator::Now().GetSeconds()
-                  << "\t[ReportPosition] AP  #" << i 
-                  <<  " Position: "  << posSTA.x 
-                  << "," << posSTA.y 
-                  << std::endl;
-      // type = 1 means it will write the position of an STA
-      } else {
-        // Find the nearest AP
-        Ptr<Node> myNearestAP;
-        myNearestAP = nearestAp (myApNodes, node, myverbose);
-        Vector posMyNearestAP = GetPosition (myNearestAP);
-        double distance = sqrt ( ( (posSTA.x - posMyNearestAP.x)*(posSTA.x - posMyNearestAP.x) ) + ( (posSTA.y - posMyNearestAP.y)*(posSTA.y - posMyNearestAP.y) ) );
-
-        std::cout << Simulator::Now().GetSeconds()
-                  << "\t[ReportPosition] STA #" << i 
-                  <<  " Position: "  << posSTA.x
-                  << "," << posSTA.y 
-                  << ". The nearest AP is AP#" << (myNearestAP)->GetId()
-                  << ". Distance: " << distance << " m"
-                  << std::endl;
-      }
-    }
-
-  // re-schedule
-  Simulator::Schedule (Seconds (period), &ReportPosition, period, node, i, type, myverbose, myApNodes);
-}
-
-
 // Print the simulation time to std::cout
 static void printTime (double period, std::string myoutputFileName, std::string myoutputFileSurname)
 {
@@ -1105,7 +1066,7 @@ STA_record::STA_record ()
 {
   assoc = false;
   staid = 0;
-  apMac = "00:00:00:00:00:00";
+  apMac = "00:00:00:00:00:00";    //MAC address of the AP to which the STA is associated
   typeofapplication = 0;
   staRecordMaxSizeAmpdu = 0;
   staRecordVerboseLevel = 0;
@@ -1138,6 +1099,53 @@ Get_STA_record_num ()
   }
   return AssocNum;
 }
+
+uint8_t
+GetChannelOfAnSTA (uint16_t id)
+// it returns the channel of the AP where the STA is associated
+{
+  uint8_t channel;
+  for (STA_recordVector::const_iterator index = assoc_vector.begin (); index != assoc_vector.end (); index++) {
+    if ((*index)->GetStaid () == id) {
+      // auxiliar string
+      std::ostringstream auxString;
+      // create a string with the MAC
+      auxString << "02-06-" << (*index)->GetMac();
+      std::string myaddress = auxString.str();
+      // Get the wireless channel of the AP with the corresponding address
+      channel = GetAP_WirelessChannel (GetAnAP_Id(myaddress), 0);
+    }
+  }
+  return channel;
+}
+
+// Print the channel of a STA
+static void
+ReportChannel (double period, uint16_t id, int myverbose)
+{
+  if (myverbose > 2) {
+    // Find the AP to which the STA is associated
+    for (STA_recordVector::const_iterator index = assoc_vector.begin (); index != assoc_vector.end (); index++) {
+      if ((*index)->GetStaid () == id) {
+        // auxiliar string
+        std::ostringstream auxString;
+        // create a string with the MAC
+        auxString << "02-06-" << (*index)->GetMac();
+        std::string myaddress = auxString.str();
+
+        std::cout << Simulator::Now().GetSeconds()
+                  << "\t[ReportChannel ] STA #" << id 
+                  << " Associated to AP#" << GetAnAP_Id(myaddress)
+                  << ". Channel: " << uint16_t(GetChannelOfAnSTA (id))
+                  << std::endl;
+      }
+    }
+  }
+
+  // re-schedule
+  Simulator::Schedule (Seconds (period), &ReportChannel, period, id, myverbose);
+}
+
 
 void
 List_STA_record ()
@@ -1360,7 +1368,7 @@ STA_record::UnsetAssoc (std::string context, Mac48Address AP_MAC_address)
               << "\trunning application " << typeofapplication 
               << "\tde-associated from AP #" << GetAnAP_Id(myaddress)
               << " with MAC " << AP_MAC_address 
-              << " with channel " <<  uint16_t (apChannel)
+              << " with channel " << uint16_t (apChannel)
               << "" << std::endl;
 
   // This only runs if the aggregation algorithm is running
@@ -1760,6 +1768,43 @@ SavePositionSTA (double period, Ptr<Node> node, NodeContainer myApNodes, uint16_
   }
 }
 
+
+// Print the position of a node
+// taken from https://www.nsnam.org/doxygen/wifi-ap_8cc.html
+static void
+ReportPosition (double period, Ptr<Node> node, int i, int type, int myverbose, NodeContainer myApNodes)
+{
+  Vector posSTA = GetPosition (node);
+
+  if (myverbose > 2) {
+    // type = 0 means it will write the position of an AP
+    if (type == 0) {
+      std::cout << Simulator::Now().GetSeconds()
+                << "\t[ReportPosition] AP  #" << i 
+                <<  " Position: "  << posSTA.x 
+                << "," << posSTA.y 
+                << std::endl;
+    // type = 1 means it will write the position of an STA
+    } else {
+      // Find the nearest AP
+      Ptr<Node> myNearestAP;
+      myNearestAP = nearestAp (myApNodes, node, myverbose);
+      Vector posMyNearestAP = GetPosition (myNearestAP);
+      double distance = sqrt ( ( (posSTA.x - posMyNearestAP.x)*(posSTA.x - posMyNearestAP.x) ) + ( (posSTA.y - posMyNearestAP.y)*(posSTA.y - posMyNearestAP.y) ) );
+
+      std::cout << Simulator::Now().GetSeconds()
+                << "\t[ReportPosition] STA #" << i 
+                <<  " Position: "  << posSTA.x
+                << "," << posSTA.y 
+                << ". The nearest AP is AP#" << (myNearestAP)->GetId()
+                << ". Distance: " << distance << " m"
+                << std::endl;
+    }
+  }
+
+  // re-schedule
+  Simulator::Schedule (Seconds (period), &ReportPosition, period, node, i, type, myverbose, myApNodes);
+}
 
 
 
@@ -3736,6 +3781,16 @@ int main (int argc, char *argv[]) {
     }
   }
 
+  // Periodically report the channels of all the STAs
+  if ((verboseLevel > 2) && (timeMonitorKPIs > 0)) {
+    for (uint32_t j = 0; j < number_of_STAs; ++j) {
+      Simulator::Schedule ( Seconds (INITIALTIMEINTERVAL),
+                            &ReportChannel, 
+                            timeMonitorKPIs,
+                            number_of_APs + j,
+                            verboseLevel);
+    }
+  }
 
 
   // EXPERIMENTAL: on each STA, add support for other operational channels
