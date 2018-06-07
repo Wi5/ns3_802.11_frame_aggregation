@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v184
+ * v185
  * Developed and tested for ns-3.27, https://www.nsnam.org/ns-3-27/
  */
 
@@ -2432,6 +2432,8 @@ int main (int argc, char *argv[]) {
                             // 1: each server application is in a node connected to the hub
                             // 2: each server application is in a node behind the router, connected to it with a P2P connection
 
+  uint32_t arpAliveTimeout = 5;     // seconds by default
+
   uint32_t TcpPayloadSize = MTU - 52; // 1448 bytes. Prevent fragmentation. Taken from https://www.nsnam.org/doxygen/codel-vs-pfifo-asymmetric_8cc_source.html
   uint32_t VideoMaxPacketSize = MTU - 20 - 8;  //1472 bytes. Remove 20 (IP) + 8 (UDP) bytes from MTU (1500)
 
@@ -2524,6 +2526,9 @@ int main (int argc, char *argv[]) {
   cmd.AddValue ("constantSpeed", "Speed of the nodes (in linear and random mobility), default 1.5 m/s", constantSpeed);
 
   cmd.AddValue ("topology", "Topology: '0' all server applications in a server; '1' all the servers connected to the hub (default); '2' all the servers behind a router", topology);
+
+  // ARP parameters, see https://www.nsnam.org/doxygen/classns3_1_1_arp_cache.html
+  cmd.AddValue ("ARPAliveTimeout", "ARP Alive Timeout [s]: Time an ARP entry will be in ALIVE state (unless refreshed)", arpAliveTimeout);
 
   // Aggregation parameters
   // The central controller runs an algorithm that dynamically
@@ -2758,6 +2763,7 @@ int main (int argc, char *argv[]) {
     std::cout << "Node mobility: '0' static; '1' linear; '2' Random Walk 2d; '3' Random Waypoint: " << nodeMobility << '\n';
     std::cout << "Speed of the nodes (in linear and random mobility): " << constantSpeed << " m/s"<< '\n';
     std::cout << "Topology: '0' all server applications in a server; '1' all the servers connected to the hub; '2' all the servers behind a router: " << topology << '\n';
+    std::cout << "ARP Alive Timeout [s]: Time an ARP entry will be in ALIVE state (unless refreshed): " << arpAliveTimeout << '\n';
     std::cout << '\n';
     // Aggregation parameters    
     std::cout << "Initial rate of APs with AMPDU aggregation enabled: " << rateAPsWithAMPDUenabled << '\n';
@@ -2877,7 +2883,7 @@ int main (int argc, char *argv[]) {
 
 
   // ARP parameters
-  Config::SetDefault ("ns3::ArpCache::AliveTimeout", TimeValue (Seconds (5)));
+  Config::SetDefault ("ns3::ArpCache::AliveTimeout", TimeValue (Seconds (arpAliveTimeout)));
   Config::SetDefault ("ns3::ArpCache::DeadTimeout", TimeValue (Seconds (0.1)));
   Config::SetDefault ("ns3::ArpCache::MaxRetries", UintegerValue (100));
 
