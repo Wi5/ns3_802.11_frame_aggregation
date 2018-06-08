@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v185
+ * v186
  * Developed and tested for ns-3.27, https://www.nsnam.org/ns-3-27/
  */
 
@@ -143,8 +143,8 @@ Two possibilities:
 // By default, all the packets belong to the BestEffort Access Class (AC_BE).
 //
 // The user can select many parameters when calling the program. Examples:
-// ns-3.26$ ./waf --run "scratch/wifi-central-controlled-aggregation --PrintHelp"
-// ns-3.26$ ./waf --run "scratch/wifi-central-controlled-aggregation --number_of_APs=1 --nodeMobility=1 --nodeSpeed=0.1 --simulationTime=10 --distance_between_APs=20"
+// ns-3.27$ ./waf --run "scratch/wifi-central-controlled-aggregation --PrintHelp"
+// ns-3.27$ ./waf --run "scratch/wifi-central-controlled-aggregation --number_of_APs=1 --nodeMobility=1 --nodeSpeed=0.1 --simulationTime=10 --distance_between_APs=20"
 //
 // if you want different results in different runs, use a different seed each time you call the program
 // (see https://www.nsnam.org/docs/manual/html/random-variables.html). One example:
@@ -266,8 +266,7 @@ void ChangeFrequencyLocal
 
     Ptr<WifiPhy> phy0 = wifidevice->GetPhy();
 
-//      phy0->SetChannelNumber (channel); //https://www.nsnam.org/doxygen/classns3_1_1_wifi_phy.html#a2d13cf6ae4c185cae8516516afe4a32a
-  
+//  phy0->SetChannelNumber (channel); //https://www.nsnam.org/doxygen/classns3_1_1_wifi_phy.html#a2d13cf6ae4c185cae8516516afe4a32a
 
     if (mywifiModel == 0) {
       Ptr<WifiPhy> phy0 = wifidevice->GetPhy();
@@ -288,9 +287,9 @@ void ChangeFrequencyLocal
 /*********** This part is only for the ARPs. Not used **************/
 typedef std::pair<Ptr<Packet>, Ipv4Header> Ipv4PayloadHeaderPair;
 
-static void PrintArpCache (uint32_t nodenumber, Ptr <Node> node, Ptr <NetDevice> nd/*, Ptr <Ipv4Interface> interface*/)
+static void PrintArpCache (Ptr <Node> node, Ptr <NetDevice> nd/*, Ptr <Ipv4Interface> interface*/)
 {
-  std::cout << "Printing Arp Cache of Node#" << nodenumber << '\n';
+  std::cout << "Printing Arp Cache of Node#" << node->GetId() << '\n';
   Ptr <ArpL3Protocol> arpL3 = node->GetObject <ArpL3Protocol> ();
   //Ptr <ArpCache> arpCache = arpL3->FindCache (nd);
   //arpCache->Flush ();
@@ -332,10 +331,10 @@ static void PrintArpCache (uint32_t nodenumber, Ptr <Node> node, Ptr <NetDevice>
         // If Loopback address, go to the next
         if(ipAddr == Ipv4Address::GetLoopback())
         {
-          NS_LOG_UNCOND ("[PrintArpCache] Node #" << nodenumber << " " << addr << ", " << ipAddr << "");
+          NS_LOG_UNCOND ("[PrintArpCache] Node #" << node->GetId() << " " << addr << ", " << ipAddr << "");
         } else {
 
-          NS_LOG_UNCOND ("[PrintArpCache] Node #" << nodenumber << " " << addr << ", " << ipAddr << "");
+          NS_LOG_UNCOND ("[PrintArpCache] Node #" << node->GetId() << " " << addr << ", " << ipAddr << "");
 
         Ptr<ArpCache> m_arpCache = nd->GetObject<ArpCache> ();
         m_arpCache = ipIface->GetObject<ArpCache> (); // FIXME: THIS DOES NOT WORK
@@ -344,7 +343,7 @@ static void PrintArpCache (uint32_t nodenumber, Ptr <Node> node, Ptr <NetDevice>
         //m_arpCache->SetAliveTimeout(Seconds(7));
 
         //if (m_arpCache != 0) {
-          NS_LOG_UNCOND ("[PrintArpCache]       " << nodenumber << " " << addr << ", " << ipAddr << "");
+          NS_LOG_UNCOND ("[PrintArpCache]       " << node->GetId() << " " << addr << ", " << ipAddr << "");
           AsciiTraceHelper asciiTraceHelper;
           Ptr<OutputStreamWrapper> stream = asciiTraceHelper.CreateFileStream ("arpcache.txt");
           m_arpCache->PrintArpCache(stream);
@@ -357,34 +356,22 @@ static void PrintArpCache (uint32_t nodenumber, Ptr <Node> node, Ptr <NetDevice>
       }
     }
   }
-  Simulator::Schedule (Seconds(1.0), &PrintArpCache, nodenumber, node, nd);
+  Simulator::Schedule (Seconds(1.0), &PrintArpCache, node, nd);
 }
 
-void emtpyArpCache()
-{
-  // Creates ARP Cache object
-  Ptr<ArpCache> arp = CreateObject<ArpCache> ();
-  uint32_t l = 0;
-  for (NodeList::Iterator i = NodeList::Begin(); i != NodeList::End(); ++i)
-  {
-    std::cout << "Node #" << l << '\n';
-    l ++;
-    arp = (*i)->GetObject<ArpCache> ();
-    arp->SetAliveTimeout (Seconds(3600 * 24 )); // 1-year
-    //arp->Flush();
-  }
-}
-
-void infoArpCache(uint32_t nodenumber, Ptr <Node> mynode, uint32_t myverbose)
+// empty the ARP cache of a node
+void emtpyArpCache(Ptr <Node> mynode, uint32_t myverbose)
 {
   // Create ARP Cache object
   Ptr<ArpCache> arp = CreateObject<ArpCache> ();
   Ptr<Ipv4L3Protocol> ip = mynode->GetObject<Ipv4L3Protocol> ();
-  if (ip!=0) {
-    std::cout << "[infoArpCache] Adding the Arp Cache to Node #" << nodenumber << '\n';
 
+  // do it only if the node has IP
+  if ( ip != 0 ) {
     ObjectVectorValue interfaces;
     ip->GetAttribute("InterfaceList", interfaces);
+
+    uint32_t interfaceNum = 0;
     for(ObjectVectorValue::Iterator j = interfaces.Begin(); j !=interfaces.End (); j ++)
     {
       Ptr<Ipv4Interface> ipIface = (j->second)->GetObject<Ipv4Interface> ();
@@ -396,21 +383,152 @@ void infoArpCache(uint32_t nodenumber, Ptr <Node> mynode, uint32_t myverbose)
       arp->SetDevice (device, ipIface); // https://www.nsnam.org/doxygen/classns3_1_1_arp_cache.html#details
       //ipIface->SetAttribute("ArpCache", PointerValue(arp));
 
+      AsciiTraceHelper asciiTraceHelper;
+      Ptr<OutputStreamWrapper> stream = asciiTraceHelper.CreateFileStream ("arpcache.txt");
+      arp->PrintArpCache(stream);
+
+      if (myverbose) {
+        std::cout << Simulator::Now().GetSeconds() << '\t'
+                  << "[emtpyArpCache] Initial Arp cache of Node #" << mynode->GetId() 
+                  << '\n';
+            std::cout << "\t\t\tInterface # " << interfaceNum;
+            std::cout << stream << '\n';
+      }
+
+      arp->Flush(); //Clear the ArpCache of all entries. It sets the default parameters again
+
+      if (myverbose) {
+        std::cout << Simulator::Now().GetSeconds() << '\t'
+                  << "[emtpyArpCache] Modified Arp cache of Node #" << mynode->GetId()
+                  << '\n';
+        std::cout << "\t\t\tInterface # " << interfaceNum;
+        std::cout << stream << '\n';
+      }
+      interfaceNum ++;
+    }
+  }
+  // If you want to do this periodically:
+  //Simulator::Schedule (Seconds(1.0), &emtpyArpCache, mynode, myverbose);
+}
+
+// Modify the ARP parameters of a node
+void modifyArpParams(Ptr <Node> mynode, double aliveTimeout, uint32_t myverbose)
+{
+  // Create ARP Cache object
+  Ptr<ArpCache> arp = CreateObject<ArpCache> ();
+  Ptr<Ipv4L3Protocol> ip = mynode->GetObject<Ipv4L3Protocol> ();
+
+  // do it only if the node has IP
+  if ( ip != 0 ) {
+    ObjectVectorValue interfaces;
+    ip->GetAttribute("InterfaceList", interfaces);
+
+    uint32_t interfaceNum = 0;
+    for(ObjectVectorValue::Iterator j = interfaces.Begin(); j !=interfaces.End (); j ++)
+    {
+      Ptr<Ipv4Interface> ipIface = (j->second)->GetObject<Ipv4Interface> ();
+
+      // Get interfaces list from Ipv4L3Protocol iteractor
+      Ptr<NetDevice> device = ipIface->GetDevice();
+      NS_ASSERT(device != 0);
+
+      arp->SetDevice (device, ipIface); // https://www.nsnam.org/doxygen/classns3_1_1_arp_cache.html#details
+      //ipIface->SetAttribute("ArpCache", PointerValue(arp));
 
       AsciiTraceHelper asciiTraceHelper;
       Ptr<OutputStreamWrapper> stream = asciiTraceHelper.CreateFileStream ("arpcache.txt");
       arp->PrintArpCache(stream);
 
       if (myverbose) {
+        std::cout << Simulator::Now().GetSeconds() << '\t'
+                  << "[modifyArpParams] Initial Arp parameters of Node #" << mynode->GetId() 
+                  << '\n';
+            std::cout << "\t\t\tInterface # " << interfaceNum
+                      << '\n';
+
+            Time mytime = arp->GetAliveTimeout();
+            std::cout << "\t\t\t\tAlive Timeout [s]: " << mytime.GetSeconds()
+                      << '\n';
+
+            mytime = arp->GetDeadTimeout();
+            std::cout << "\t\t\t\tDead Timeout [s]: " << mytime.GetSeconds() 
+                      << '\n';
+      }
+
+      //arp->Flush(); //Clear the ArpCache of all entries. It sets the default parameters again
+      //aliveTimeout = aliveTimeout + 1.0;
+      Time alive = Seconds (aliveTimeout);
+      arp->SetAliveTimeout (alive);
+
+      if (myverbose) {
+        std::cout << Simulator::Now().GetSeconds() << '\t'
+                  << "[modifyArpParams] Modified Arp parameters of Node #" << mynode->GetId()
+                  << '\n';
+
+        std::cout << "\t\t\tInterface # " << interfaceNum
+                  << '\n';
+
         Time mytime = arp->GetAliveTimeout();
-        std::cout << "Alive Timeout [s]: " << mytime.GetSeconds() << '\n';
+        std::cout << "\t\t\t\tAlive Timeout [s]: " << mytime.GetSeconds()
+                  << '\n';
 
         mytime = arp->GetDeadTimeout();
-        std::cout << "Dead Timeout [s]: " << mytime.GetSeconds() << '\n';
+        std::cout << "\t\t\t\tDead Timeout [s]: " << mytime.GetSeconds() 
+                  << '\n';
       }
+      interfaceNum ++;
     }
   }
-  Simulator::Schedule (Seconds(1.0), &infoArpCache, nodenumber, mynode, myverbose);
+  // If you want to do this periodically:
+  //Simulator::Schedule (Seconds(1.0), &modifyArpParams, mynode, aliveTimeout, myverbose);
+}
+
+void infoArpCache(Ptr <Node> mynode, uint32_t myverbose)
+{
+  // Create ARP Cache object
+  Ptr<ArpCache> arp = CreateObject<ArpCache> ();
+  Ptr<Ipv4L3Protocol> ip = mynode->GetObject<Ipv4L3Protocol> ();
+  if (ip!=0) {
+    std::cout << Simulator::Now().GetSeconds() << '\t'
+              << "[infoArpCache] Arp parameters of Node #" << mynode->GetId() 
+              << '\n';
+
+    ObjectVectorValue interfaces;
+    ip->GetAttribute("InterfaceList", interfaces);
+
+    uint32_t interfaceNum = 0;
+    for(ObjectVectorValue::Iterator j = interfaces.Begin(); j !=interfaces.End (); j ++)
+    {
+      Ptr<Ipv4Interface> ipIface = (j->second)->GetObject<Ipv4Interface> ();
+
+      // Get interfaces list from Ipv4L3Protocol iteractor
+      Ptr<NetDevice> device = ipIface->GetDevice();
+      NS_ASSERT(device != 0);
+
+      arp->SetDevice (device, ipIface); // https://www.nsnam.org/doxygen/classns3_1_1_arp_cache.html#details
+      //ipIface->SetAttribute("ArpCache", PointerValue(arp));
+
+      AsciiTraceHelper asciiTraceHelper;
+      Ptr<OutputStreamWrapper> stream = asciiTraceHelper.CreateFileStream ("arpcache.txt");
+      arp->PrintArpCache(stream);
+
+      if (myverbose) {
+        std::cout << "\t\t\tInterface # " << interfaceNum
+                  << '\n';
+
+        Time mytime = arp->GetAliveTimeout();
+        std::cout << "\t\t\t\tAlive Timeout [s]: " << mytime.GetSeconds()
+                  << '\n';
+
+        mytime = arp->GetDeadTimeout();
+        std::cout << "\t\t\t\tDead Timeout [s]: " << mytime.GetSeconds() 
+                  << '\n';
+      }
+      interfaceNum ++;
+    }
+  }
+  // If you want to do this periodically:
+  //Simulator::Schedule (Seconds(1.0), &infoArpCache, mynode, myverbose);
 }
 
 // Taken from here https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
@@ -429,70 +547,65 @@ void PopulateArpCache (uint32_t nodenumber, Ptr <Node> mynode)
   //arp->SetWaitReplyTimeout (Seconds(200));
 
   // Populates ARP Cache with information from all nodes
-  /*for (NodeList::Iterator i = NodeList::Begin(); i != NodeList::End(); ++i)
-    {*/
+  /*for (NodeList::Iterator i = NodeList::Begin(); i != NodeList::End(); ++i) {*/
 
-      std::cout << "[PopulateArpCache] Node #" << nodenumber << '\n';
+    std::cout << "[PopulateArpCache] Node #" << nodenumber << '\n';
 
+    // Get an interactor to Ipv4L3Protocol instance
+
+    Ptr<Ipv4L3Protocol> ip = mynode->GetObject<Ipv4L3Protocol> ();
+    NS_ASSERT(ip !=0);
+
+    // Get interfaces list from Ipv4L3Protocol iteractor
+    ObjectVectorValue interfaces;
+    ip->GetAttribute("InterfaceList", interfaces);
+
+    // For each interface
+    for(ObjectVectorValue::Iterator j = interfaces.Begin(); j !=interfaces.End (); j ++) {
       // Get an interactor to Ipv4L3Protocol instance
-
-      Ptr<Ipv4L3Protocol> ip = mynode->GetObject<Ipv4L3Protocol> ();
-      NS_ASSERT(ip !=0);
+      Ptr<Ipv4Interface> ipIface = (j->second)->GetObject<Ipv4Interface> ();
+      NS_ASSERT(ipIface != 0);
 
       // Get interfaces list from Ipv4L3Protocol iteractor
-      ObjectVectorValue interfaces;
-      ip->GetAttribute("InterfaceList", interfaces);
+      Ptr<NetDevice> device = ipIface->GetDevice();
+      NS_ASSERT(device != 0);
 
-      // For each interface
-      for(ObjectVectorValue::Iterator j = interfaces.Begin(); j !=interfaces.End (); j ++)
-        {
-          // Get an interactor to Ipv4L3Protocol instance
-          Ptr<Ipv4Interface> ipIface = (j->second)->GetObject<Ipv4Interface> ();
-          NS_ASSERT(ipIface != 0);
+      // Get MacAddress assigned to this device
+      Mac48Address addr = Mac48Address::ConvertFrom(device->GetAddress ());
 
-          // Get interfaces list from Ipv4L3Protocol iteractor
-          Ptr<NetDevice> device = ipIface->GetDevice();
-          NS_ASSERT(device != 0);
+      // For each Ipv4Address in the list of Ipv4Addresses assign to this interface...
+      for(uint32_t k = 0; k < ipIface->GetNAddresses (); k++) {
+        // Get Ipv4Address
+        Ipv4Address ipAddr = ipIface->GetAddress (k).GetLocal();
 
-          // Get MacAddress assigned to this device
-          Mac48Address addr = Mac48Address::ConvertFrom(device->GetAddress ());
+        // If Loopback address, go to the next
+        if(ipAddr == Ipv4Address::GetLoopback())
+          continue;
 
-          // For each Ipv4Address in the list of Ipv4Addresses assign to this interface...
-          for(uint32_t k = 0; k < ipIface->GetNAddresses (); k++)
-            {
+        std::cout << "[PopulateArpCache] Arp Cache: Adding the pair (" << addr << "," << ipAddr << ")" << '\n';
 
-              // Get Ipv4Address
-              Ipv4Address ipAddr = ipIface->GetAddress (k).GetLocal();
+        // Creates an ARP entry for this Ipv4Address and adds it to the ARP Cache
+        Ipv4Header ipHeader;
+        ArpCache::Entry * entry = arp->Add(ipAddr);
+        //entry->IsPermanent();
+        //entry->MarkWaitReply();
+        //entry->MarkPermanent();
+        //entry->MarkAlive(addr);
+        //entry->MarkDead();
 
-              // If Loopback address, go to the next
-              if(ipAddr == Ipv4Address::GetLoopback())
-                continue;
+        entry->MarkWaitReply (Ipv4PayloadHeaderPair(dummy,ipHeader));
+        entry->MarkAlive (addr);
+        entry->ClearPendingPacket();
+        entry->MarkPermanent ();
 
-              std::cout << "[PopulateArpCache] Arp Cache: Adding the pair (" << addr << "," << ipAddr << ")" << '\n';
+        NS_LOG_UNCOND ("[PopulateArpCache] Arp Cache: Added the pair (" << addr << "," << ipAddr << ")");
 
-              // Creates an ARP entry for this Ipv4Address and adds it to the ARP Cache
-              Ipv4Header ipHeader;
-              ArpCache::Entry * entry = arp->Add(ipAddr);
-              //entry->IsPermanent();
-              //entry->MarkWaitReply();
-              //entry->MarkPermanent();
-              //entry->MarkAlive(addr);
-              //entry->MarkDead();
+        AsciiTraceHelper asciiTraceHelper;
+        Ptr<OutputStreamWrapper> stream = asciiTraceHelper.CreateFileStream ("arpcache.txt");
 
-              entry->MarkWaitReply (Ipv4PayloadHeaderPair(dummy,ipHeader));
-              entry->MarkAlive (addr);
-              entry->ClearPendingPacket();
-              entry->MarkPermanent ();
-
-              NS_LOG_UNCOND ("[PopulateArpCache] Arp Cache: Added the pair (" << addr << "," << ipAddr << ")");
-
-              AsciiTraceHelper asciiTraceHelper;
-              Ptr<OutputStreamWrapper> stream = asciiTraceHelper.CreateFileStream ("arpcache.txt");
-
-              arp->PrintArpCache(stream);
-
-            }
-//    }
+        arp->PrintArpCache(stream);
+      }
+//  }
 
     // Assign ARP Cache to each interface of each node
     for (NodeList::Iterator i = NodeList::Begin(); i != NodeList::End(); ++i)
@@ -530,6 +643,7 @@ void PopulateArpCache (uint32_t nodenumber, Ptr <Node> mynode)
   }
 }
 /************* END of the ARP part (not used) *************/
+
 
 // Modify the max AMPDU value of a node
 void ModifyAmpdu (uint32_t nodeNumber, uint32_t ampduValue, uint32_t myverbose)
@@ -620,7 +734,10 @@ nearestAp (NodeContainer APs, Ptr<Node> mySTA, int myverbose)
   Vector posAp;
 
   if (myverbose > 3)
-    std::cout << Simulator::Now().GetSeconds() << "\t[nearestAp]\tSTA #" << mySTA->GetId() <<  "\tPosition: "  << posSta.x << "," << posSta.y << std::endl;
+    std::cout << Simulator::Now().GetSeconds() 
+              << "\t[nearestAp]\tSTA #" << mySTA->GetId()
+              <<  "\tPosition: "  << posSta.x << "," << posSta.y
+              << std::endl;
 
   // Check all the APs to find the nearest one
   NodeContainer::Iterator i; 
@@ -650,7 +767,9 @@ nearestAp (NodeContainer APs, Ptr<Node> mySTA, int myverbose)
 // Print the simulation time to std::cout
 static void printTime (double period, std::string myoutputFileName, std::string myoutputFileSurname)
 {
-  std::cout << Simulator::Now().GetSeconds() << "\t" << myoutputFileName << "_" << myoutputFileSurname << '\n';
+  std::cout << Simulator::Now().GetSeconds() << "\t" 
+            << myoutputFileName << "_" 
+            << myoutputFileSurname << '\n';
 
   // re-schedule 
   Simulator::Schedule (Seconds (period), &printTime, period, myoutputFileName, myoutputFileSurname);
@@ -663,7 +782,8 @@ CourseChange (std::string foo, Ptr<const MobilityModel> mobility)
 {
   Vector pos = mobility->GetPosition ();
   Vector vel = mobility->GetVelocity ();
-  std::cout << Simulator::Now ().GetSeconds() << "\t[CourseChange] MOBILITY CHANGE. model= " 
+  std::cout << Simulator::Now ().GetSeconds()
+            << "\t[CourseChange] MOBILITY CHANGE. model= " 
             << mobility << ", POS: x=" << pos.x 
             << ", y=" << pos.y
             << ", z=" << pos.z 
@@ -1341,6 +1461,25 @@ STA_record::SetAssoc (std::string context, Mac48Address AP_MAC_address)
     List_STA_record ();
     ListAPs (staRecordVerboseLevel);
   }
+
+  if (false) {
+    // empty the ARP caches of all the nodes after a new association
+    for (NodeList::Iterator i = NodeList::Begin(); i != NodeList::End(); ++i) {
+      //uint32_t identif;
+      //identif = (*i)->GetId();
+      emtpyArpCache ( (*i), 2);
+    }
+  }
+
+  // after a new association, momentarily modify the ARP timeout to 1 second, and then to 50 seconds again
+  if (false) {
+    for (NodeList::Iterator i = NodeList::Begin(); i != NodeList::End(); ++i) {
+        //uint32_t identif;
+        //identif = (*i)->GetId();
+        modifyArpParams( (*i), 1.0, staRecordVerboseLevel);
+        Simulator::Schedule (Seconds(5.0), &modifyArpParams, (*i), 50.0, staRecordVerboseLevel);
+    }
+  }
 }
 
 // This is called with a callback every time a STA is de-associated from an AP
@@ -1540,9 +1679,6 @@ STA_record::UnsetAssoc (std::string context, Mac48Address AP_MAC_address)
      
         uint8_t newChannel = GetAP_WirelessChannel ( (nearest)->GetId(), staRecordVerboseLevel );
 
-
-//if (wifi_mac.IsWaitAssocResp() != false ) {
-
         if ( (HANDOFFMETHOD == 0) /*&& (wifiModel==0) */) //FIXME
           ChangeFrequencyLocal (thisDevice, newChannel, staRecordwifiModel, staRecordVerboseLevel);
 
@@ -1553,9 +1689,7 @@ STA_record::UnsetAssoc (std::string context, Mac48Address AP_MAC_address)
                     << ". Channel set to " << uint16_t (newChannel) 
                     << ", i.e. the channel of the nearest AP (AP #" << (nearest)->GetId()
                     << ")" << std::endl << std::endl;
-//}
 
-      //}
     } else { // numChannels == 1
       if (staRecordVerboseLevel > 0)
         std::cout << Simulator::Now ().GetSeconds() 
@@ -1565,7 +1699,7 @@ STA_record::UnsetAssoc (std::string context, Mac48Address AP_MAC_address)
                   << "\tchannel is still " << uint16_t (apChannel) 
                   << std::endl << std::endl;
     }
-/*  } else { // wifiModel = 1
+/*} else { // wifiModel = 1
     if (staRecordVerboseLevel > 0)
       std::cout << Simulator::Now ().GetSeconds() 
                   << "\t[UnsetAssoc] STA #" << staid 
@@ -2432,7 +2566,9 @@ int main (int argc, char *argv[]) {
                             // 1: each server application is in a node connected to the hub
                             // 2: each server application is in a node behind the router, connected to it with a P2P connection
 
-  uint32_t arpAliveTimeout = 5;     // seconds by default
+  double arpAliveTimeout = 5.0;       // seconds by default
+  double arpDeadTimeout = 0.01;     // seconds by default
+  uint16_t arpMaxRetries = 100;       // maximum retries or ARPs
 
   uint32_t TcpPayloadSize = MTU - 52; // 1448 bytes. Prevent fragmentation. Taken from https://www.nsnam.org/doxygen/codel-vs-pfifo-asymmetric_8cc_source.html
   uint32_t VideoMaxPacketSize = MTU - 20 - 8;  //1472 bytes. Remove 20 (IP) + 8 (UDP) bytes from MTU (1500)
@@ -2763,7 +2899,7 @@ int main (int argc, char *argv[]) {
     std::cout << "Node mobility: '0' static; '1' linear; '2' Random Walk 2d; '3' Random Waypoint: " << nodeMobility << '\n';
     std::cout << "Speed of the nodes (in linear and random mobility): " << constantSpeed << " m/s"<< '\n';
     std::cout << "Topology: '0' all server applications in a server; '1' all the servers connected to the hub; '2' all the servers behind a router: " << topology << '\n';
-    std::cout << "ARP Alive Timeout [s]: Time an ARP entry will be in ALIVE state (unless refreshed): " << arpAliveTimeout << '\n';
+    std::cout << "ARP Alive Timeout [s]: Time an ARP entry will be in ALIVE state (unless refreshed): " << arpAliveTimeout << " s\n";
     std::cout << '\n';
     // Aggregation parameters    
     std::cout << "Initial rate of APs with AMPDU aggregation enabled: " << rateAPsWithAMPDUenabled << '\n';
@@ -2804,7 +2940,7 @@ int main (int argc, char *argv[]) {
     std::cout << "First characters to be used in the name of the output file: " << outputFileName << '\n';
     std::cout << "Other characters to be used in the name of the output file (not in the average one): " << outputFileSurname << '\n';
     std::cout << "Save per-flow results to an XML file?: " << saveXMLFile << '\n';
-    std::cout << '\n'; 
+    std::cout << '\n';
   }
 
 
@@ -2884,8 +3020,8 @@ int main (int argc, char *argv[]) {
 
   // ARP parameters
   Config::SetDefault ("ns3::ArpCache::AliveTimeout", TimeValue (Seconds (arpAliveTimeout)));
-  Config::SetDefault ("ns3::ArpCache::DeadTimeout", TimeValue (Seconds (0.1)));
-  Config::SetDefault ("ns3::ArpCache::MaxRetries", UintegerValue (100));
+  Config::SetDefault ("ns3::ArpCache::DeadTimeout", TimeValue (Seconds (arpDeadTimeout)));
+  Config::SetDefault ("ns3::ArpCache::MaxRetries", UintegerValue (arpMaxRetries));
 
 
   /******** create the node containers *********/
@@ -2957,7 +3093,6 @@ int main (int argc, char *argv[]) {
   }
 
 
-
   /******** create the net device containers *********/
   NetDeviceContainer apCsmaDevices;
   std::vector<NetDeviceContainer> apWiFiDevices;
@@ -2984,7 +3119,6 @@ int main (int argc, char *argv[]) {
 
   Ipv4AddressHelper ipAddressesSegmentB;    // The servers are behind the router, so they are in other network
   ipAddressesSegmentB.SetBase ("10.1.0.0", "255.255.0.0");
-
 
 
   /******** mobility *******/
@@ -4198,6 +4332,14 @@ int main (int argc, char *argv[]) {
   }
 
 
+  // usage examples of functions controlling ARPs
+  if (false) {
+    infoArpCache ( staNodes.Get(1), 3);
+    emtpyArpCache ( staNodes.Get(1), 2);
+    modifyArpParams ( staNodes.Get(1), 100.0, 2);
+  }
+
+
   /************* Setting applications ***********/
 
   // Variable for setting the port of each communication
@@ -4886,20 +5028,19 @@ int main (int argc, char *argv[]) {
     for ( uint32_t j = 0 ; j < number_of_STAs ; ++j )
       Simulator::Schedule(Seconds(0.0), &PopulateArpCache, j + number_of_APs + number_of_Servers, staNodes.Get(j));
 
-
     for ( uint32_t j = 0 ; j < number_of_Servers ; ++j )
-      Simulator::Schedule(Seconds(0.0), &infoArpCache, j + number_of_APs, serverNodes.Get(j), verboseLevel);  
+      Simulator::Schedule(Seconds(0.0), &infoArpCache, serverNodes.Get(j), verboseLevel);  
 
     for ( uint32_t j = 0 ; j < number_of_STAs ; ++j )
-      Simulator::Schedule(Seconds(0.0), &infoArpCache, j + number_of_APs + number_of_Servers, staNodes.Get(j), verboseLevel);
+      Simulator::Schedule(Seconds(0.0), &infoArpCache, staNodes.Get(j), verboseLevel);
 
     //Simulator::Schedule(Seconds(2.0), &emtpyArpCache);
 
     for ( uint32_t j = number_of_APs ; j < number_of_APs + number_of_STAs ; ++j )
-      Simulator::Schedule(Seconds(0.5), &PrintArpCache, j, staNodes.Get(j), staDevices[j].Get(0));
+      Simulator::Schedule(Seconds(0.5), &PrintArpCache, staNodes.Get(j), staDevices[j].Get(0));
 
     for ( uint32_t j = number_of_APs ; j < number_of_APs + number_of_Servers ; ++j )
-      Simulator::Schedule(Seconds(0.5), &PrintArpCache, number_of_STAs + j, serverNodes.Get(j), serverDevices.Get(j));
+      Simulator::Schedule(Seconds(0.5), &PrintArpCache, serverNodes.Get(j), serverDevices.Get(j));
 
 
     //  Time mytime2 = Time (10.0);
