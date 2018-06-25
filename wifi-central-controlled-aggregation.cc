@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v186
+ * v187
  * Developed and tested for ns-3.27, https://www.nsnam.org/ns-3-27/
  */
 
@@ -1975,18 +1975,24 @@ struct AllTheFlowStatistics {
 };
 
 
+// The number of parameters for calling functions using 'schedule' is limited to 6, so I have to create a struct
+struct adjustAmpduParameters {
+  uint32_t verboseLevel;
+  double timeInterval;
+  double latencyBudget;
+  uint32_t maxAmpduSize;
+  std::string mynameAMPDUFile;
+  uint16_t methodAdjustAmpdu;
+};
+
 // Dynamically adjust the size of the AMPDU
 void adjustAMPDU (//FlowStatistics* myFlowStatistics,
                   AllTheFlowStatistics myAllTheFlowStatistics,
-                  uint32_t verboseLevel,
-                  double timeInterval,
-                  double latencyBudget,
-                  uint32_t maxAmpduSize,
-                  std::string mynameAMPDUFile)
+                  adjustAmpduParameters myparam)  
 {
   // For each AP, find the highest value of the delay of the associated STAs
   for (AP_recordVector::const_iterator indexAP = AP_vector.begin (); indexAP != AP_vector.end (); indexAP++) {
-    if (verboseLevel > 0)
+    if (myparam.verboseLevel > 0)
       std::cout << Simulator::Now ().GetSeconds()
                 << "\t[adjustAMPDU]"
                 << "\tAP #" << (*indexAP)->GetApid() 
@@ -2011,7 +2017,7 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
         // check if the STA is associated to this AP
         if ( (*indexAP)->GetMac() == addressOfTheAPwhereThisSTAis ) {
 
-          if (verboseLevel > 0) 
+          if (myparam.verboseLevel > 0) 
             std::cout << Simulator::Now ().GetSeconds() 
                       << "\t[adjustAMPDU]"
                       << "\t\tSTA #" << (*indexSTA)->GetStaid() 
@@ -2020,7 +2026,7 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
 
           // VoIP upload
           if ((*indexSTA)->Gettypeofapplication () == 1) {
-            if (verboseLevel > 0)
+            if (myparam.verboseLevel > 0)
               std::cout << "\tVoIP upload";
 
             // index for the vector of statistics of VoIPDownload flows
@@ -2029,9 +2035,9 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
 
             // 'isnan' checks if the value is not a number
             if (!isnan(myAllTheFlowStatistics.FlowStatisticsVoIPUpload[indexForVector].lastIntervalDelay)) {
-              if (verboseLevel > 0)
+              if (myparam.verboseLevel > 0)
                 std::cout << "\tDelay: " << myAllTheFlowStatistics.FlowStatisticsVoIPUpload[indexForVector].lastIntervalDelay 
-                          << "\tThroughput: " << myAllTheFlowStatistics.FlowStatisticsVoIPUpload[indexForVector].lastIntervalRxBytes * 8 / timeInterval
+                          << "\tThroughput: " << myAllTheFlowStatistics.FlowStatisticsVoIPUpload[indexForVector].lastIntervalRxBytes * 8 / myparam.timeInterval
                           //<< "\t indexForVector is " << indexForVector
                           ;
 
@@ -2042,7 +2048,7 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
                 highestLatencyThisAP = myAllTheFlowStatistics.FlowStatisticsVoIPUpload[ indexForVector].lastIntervalDelay;
 
             } else {
-              if (verboseLevel > 0) 
+              if (myparam.verboseLevel > 0) 
                 std::cout << "\tDelay not defined in this period" 
                           //<< "\t (*indexSTA)->GetStaid()  - AP_vector.size() is " << (*indexSTA)->GetStaid() - AP_vector.size()
                           ;
@@ -2051,7 +2057,7 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
 
           // VoIP download
           } else if ((*indexSTA)->Gettypeofapplication () == 2) {
-            if (verboseLevel > 0)
+            if (myparam.verboseLevel > 0)
               std::cout << "\tVoIP download";
 
             // index for the vector of statistics of VoIPDownload flows
@@ -2061,9 +2067,9 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
 
             // 'isnan' checks if the value is not a number                                      
             if (!isnan(myAllTheFlowStatistics.FlowStatisticsVoIPDownload[ indexForVector].lastIntervalDelay)) {
-              if (verboseLevel > 0)
+              if (myparam.verboseLevel > 0)
                 std::cout << "\tDelay: " << myAllTheFlowStatistics.FlowStatisticsVoIPDownload[ indexForVector ].lastIntervalDelay 
-                          << "\tThroughput: " << myAllTheFlowStatistics.FlowStatisticsVoIPDownload[ indexForVector ].lastIntervalRxBytes * 8 / timeInterval
+                          << "\tThroughput: " << myAllTheFlowStatistics.FlowStatisticsVoIPDownload[ indexForVector ].lastIntervalRxBytes * 8 / myparam.timeInterval
                           //<< "\t indexForVector is " << indexForVector
                           ;
 
@@ -2074,7 +2080,7 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
                 highestLatencyThisAP = myAllTheFlowStatistics.FlowStatisticsVoIPDownload[ indexForVector ].lastIntervalDelay;
 
             } else {
-              if (verboseLevel > 0) 
+              if (myparam.verboseLevel > 0) 
                 std::cout << "\tDelay not defined in this period" 
                           //<< "\t indexForVector is " << indexForVector
                           ;
@@ -2083,7 +2089,7 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
 
           // TCP upload
           } else if ((*indexSTA)->Gettypeofapplication () == 3) {
-            if (verboseLevel > 0)
+            if (myparam.verboseLevel > 0)
               std::cout << "\tTCP upload";
 
             // index for the vector of statistics of TCPload flows
@@ -2094,14 +2100,14 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
 
             // 'isnan' checks if the value is not a number
             if (!isnan(myAllTheFlowStatistics.FlowStatisticsTCPUpload[ indexForVector ].lastIntervalRxBytes)) {
-              if (verboseLevel > 0)
+              if (myparam.verboseLevel > 0)
               std::cout << "\t\t\t"
-                        << "\tThroughput: " << myAllTheFlowStatistics.FlowStatisticsTCPUpload[ indexForVector ].lastIntervalRxBytes * 8 / timeInterval 
+                        << "\tThroughput: " << myAllTheFlowStatistics.FlowStatisticsTCPUpload[ indexForVector ].lastIntervalRxBytes * 8 / myparam.timeInterval 
                         //<< "\t indexForVector is " << indexForVector
                         ;
 
             } else {
-              if (verboseLevel > 0)
+              if (myparam.verboseLevel > 0)
                 std::cout << "\tThroughput not defined in this period" 
                           //<< "\t (*indexSTA)->GetStaid()  - AP_vector.size() is " << (*indexSTA)->GetStaid() - AP_vector.size()
                           ;
@@ -2110,7 +2116,7 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
 
           // TCP download
           } else if ((*indexSTA)->Gettypeofapplication () == 4) {
-            if (verboseLevel > 0)
+            if (myparam.verboseLevel > 0)
               std::cout << "\tTCP download";
 
             // index for the vector of statistics of TCPDownload flows
@@ -2122,14 +2128,14 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
 
             // 'isnan' checks if the value is not a number
             if (!isnan(myAllTheFlowStatistics.FlowStatisticsTCPDownload[ indexForVector ].lastIntervalRxBytes)) {
-              if (verboseLevel > 0)
+              if (myparam.verboseLevel > 0)
               std::cout << "\t\t\t"
-                        << "\tThroughput: " << myAllTheFlowStatistics.FlowStatisticsTCPDownload[ indexForVector ].lastIntervalRxBytes * 8 / timeInterval 
+                        << "\tThroughput: " << myAllTheFlowStatistics.FlowStatisticsTCPDownload[ indexForVector ].lastIntervalRxBytes * 8 / myparam.timeInterval 
                         //<< "\t indexForVector is " << indexForVector
                         ;
 
             } else {
-              if (verboseLevel > 0)
+              if (myparam.verboseLevel > 0)
                 std::cout << "\tThroughput not defined in this period" 
                           //<< "\t indexForVector is " << indexForVector
                           ;
@@ -2138,7 +2144,7 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
 
           // Video download
           } else if ((*indexSTA)->Gettypeofapplication () == 5) {
-              if (verboseLevel > 0)
+              if (myparam.verboseLevel > 0)
                 std::cout << "\tVideo download";
 
             // index for the vector of statistics of VideoDownload flows
@@ -2151,25 +2157,25 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
 
             // 'isnan' checks if the value is not a number
             if (!isnan(myAllTheFlowStatistics.FlowStatisticsVideoDownload[ indexForVector ].lastIntervalRxBytes)) {
-              if (verboseLevel > 0)
+              if (myparam.verboseLevel > 0)
               std::cout << "\t\t"
-                        << "\tThroughput: " << myAllTheFlowStatistics.FlowStatisticsVideoDownload[ indexForVector ].lastIntervalRxBytes * 8 / timeInterval 
+                        << "\tThroughput: " << myAllTheFlowStatistics.FlowStatisticsVideoDownload[ indexForVector ].lastIntervalRxBytes * 8 / myparam.timeInterval 
                         //<< "\t indexForVector is " << indexForVector
                         ;
             } else {
-              if (verboseLevel > 0)
+              if (myparam.verboseLevel > 0)
                 std::cout << "\tThroughput not defined in this period" 
                           //<< "\t indexForVector is " << indexForVector
                           ;
             }
           }
-          if (verboseLevel > 0)           
+          if (myparam.verboseLevel > 0)           
             std::cout << "\n";
         }
 
       // this STA is not associated to any AP
       } else {
-        if (verboseLevel > 0)
+        if (myparam.verboseLevel > 0)
           std::cout << Simulator::Now ().GetSeconds() 
                     << "\t[adjustAMPDU]"
                     << "\t\tSTA #" << (*indexSTA)->GetStaid() 
@@ -2177,40 +2183,77 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
       }
     }
 
+
+    // Adjust the value of the AMPDU
+
     // Variable to store the new value of the max AMPDU
-    uint32_t newAmpduValue, oldAmpduValue;
+    uint32_t newAmpduValue, currentAmpduValue;
 
-    oldAmpduValue = (*indexAP)->GetMaxSizeAmpdu();
+    // Variable to store the minimum AMPDU value
+    uint32_t minimumAmpduValue = MTU + 100;
 
-    // check if the latency is above of the latency budget
-    if ( highestLatencyThisAP > latencyBudget ) {
+    currentAmpduValue = (*indexAP)->GetMaxSizeAmpdu();
 
-      // reduce the AMPDU value
-      if ((*indexAP)->GetMaxSizeAmpdu() > ( AGGRESSIVENESS * STEPADJUSTAMPDU ) ) {
-        newAmpduValue = (*indexAP)->GetMaxSizeAmpdu() - ( AGGRESSIVENESS * STEPADJUSTAMPDU );
-        if ( newAmpduValue < MTU )
-          newAmpduValue = MTU + 100;
+    // First method to adjust AMPDU: linear increase and linear decrease
+    if ( myparam.methodAdjustAmpdu == 0 ) {
+
+      // if the latency is above the latency budget, we decrease the AMPDU value
+      if ( highestLatencyThisAP > myparam.latencyBudget ) {
+
+        // decrease the AMPDU value
+        if (currentAmpduValue < ( AGGRESSIVENESS * STEPADJUSTAMPDU ) ) {
+          // I can only decrease to the minimum
+          newAmpduValue = minimumAmpduValue;
+
+        } else {
+          newAmpduValue = currentAmpduValue - ( AGGRESSIVENESS * STEPADJUSTAMPDU );
+
+          // make sure that the value is at least the minimum
+          if ( newAmpduValue < minimumAmpduValue )
+            newAmpduValue = minimumAmpduValue;
+        }
+
+      // if the latency is below the latency budget, we increase the AMPDU value
+      } else {
+        // increase the AMPDU value
+        newAmpduValue = std::min(( currentAmpduValue + STEPADJUSTAMPDU ), myparam.maxAmpduSize); // avoid values above the maximum
       }
-      else
-        newAmpduValue = MTU + 100;
 
-      //newAmpduValue = (*indexAP)->GetMaxSizeAmpdu() / 2;  // more aggressive
+    // Second method to adjust AMPDU: instantaneous reduction to the minimum, double aggressiveness for increase 
+    } else if ( myparam.methodAdjustAmpdu == 1 ) {
 
-    // if the latency is below the latency budget  
-    } else {
+      //  if the latency is above the latency budget
+      if ( highestLatencyThisAP > myparam.latencyBudget ) {
+        // decrease the AMPDU value
+        newAmpduValue = minimumAmpduValue;
 
-      // increase the AMPDU value
-      if ((*indexAP)->GetMaxSizeAmpdu() + STEPADJUSTAMPDU < maxAmpduSize)
-        newAmpduValue = (*indexAP)->GetMaxSizeAmpdu() + STEPADJUSTAMPDU;
-      else
-        newAmpduValue = maxAmpduSize;
+      // if the latency is below the latency budget  
+      } else {
+        // increase the AMPDU value
+        newAmpduValue = std::min(( currentAmpduValue + (2*STEPADJUSTAMPDU) ), myparam.maxAmpduSize); // avoid values above the maximum
+      }
+
+    // Third method to adjust AMPDU: division 
+    } else if ( myparam.methodAdjustAmpdu == 2 ) {
+
+      //  if the latency is above the latency budget
+      if ( highestLatencyThisAP > myparam.latencyBudget ) {
+        // decrease the AMPDU value
+        newAmpduValue = std::floor((currentAmpduValue - minimumAmpduValue) / 2);
+
+      // if the latency is below the latency budget  
+      } else {
+        // increase the AMPDU value
+        newAmpduValue = currentAmpduValue + std::ceil(( myparam.maxAmpduSize + 1 - currentAmpduValue ) / 2);
+      }
     }
 
+
     // write the AMPDU value to a file (it is written at the end of the file)
-    if ( mynameAMPDUFile != "" ) {
+    if ( myparam.mynameAMPDUFile != "" ) {
 
       std::ofstream ofsAMPDU;
-      ofsAMPDU.open ( mynameAMPDUFile, std::ofstream::out | std::ofstream::app); // with "trunc" Any contents that existed in the file before it is open are discarded. with "app", all output operations happen at the end of the file, appending to its existing contents
+      ofsAMPDU.open ( myparam.mynameAMPDUFile, std::ofstream::out | std::ofstream::app); // with "trunc" Any contents that existed in the file before it is open are discarded. with "app", all output operations happen at the end of the file, appending to its existing contents
 
       ofsAMPDU << Simulator::Now().GetSeconds() << "\t";    // timestamp
       ofsAMPDU << GetAnAP_Id((*indexAP)->GetMac()) << "\t"; // write the ID of the AP to the file
@@ -2220,14 +2263,14 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
     }
 
     // Check if the AMPDU has to be modified or not
-    if (newAmpduValue == oldAmpduValue) {
+    if (newAmpduValue == currentAmpduValue) {
 
       // Report that the AMPDU has not been modified
-      if (verboseLevel > 0)
+      if (myparam.verboseLevel > 0)
         std::cout << Simulator::Now ().GetSeconds()
                   << "\t[adjustAMPDU]"
                   //<< "\tAP #" << GetAnAP_Id((*indexAP)->GetMac())
-                  << "\t\tHighest Latency of VoIP flows: " << highestLatencyThisAP << "s (limit " << latencyBudget << " s)"
+                  << "\t\tHighest Latency of VoIP flows: " << highestLatencyThisAP << "s (limit " << myparam.latencyBudget << " s)"
                   //<< "\twith MAC: " << (*indexAP)->GetMac() 
                   << "\tAMPDU of the AP not changed (" << (*indexAP)->GetMaxSizeAmpdu() << ")"
                   << std::endl;
@@ -2240,14 +2283,14 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
       Modify_AP_Record (GetAnAP_Id((*indexAP)->GetMac()), (*indexAP)->GetMac(), newAmpduValue );
 
       // Report the AMPDU modification
-      if (verboseLevel > 0) {
+      if (myparam.verboseLevel > 0) {
         std::cout << Simulator::Now ().GetSeconds()
                   << "\t[adjustAMPDU]"
                   //<< "\tAP #" << GetAnAP_Id((*indexAP)->GetMac())
                   << "\t\tHighest Latency of VoIP flows: " << highestLatencyThisAP;
                   //<< "\twith MAC: " << (*indexAP)->GetMac();
 
-        if ( newAmpduValue > oldAmpduValue )
+        if ( newAmpduValue > currentAmpduValue )
           std::cout << "\tAMPDU of the AP increased to " << (*indexAP)->GetMaxSizeAmpdu();
         else 
           std::cout << "\tAMPDU of the AP reduced to " << (*indexAP)->GetMaxSizeAmpdu();
@@ -2278,7 +2321,7 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
               (*indexSTA)->SetMaxSizeAmpdu(newAmpduValue);              // update the data in the STA_record structure
 
               // Report this modification
-              if (verboseLevel > 0) {
+              if (myparam.verboseLevel > 0) {
                 std::cout << Simulator::Now ().GetSeconds() 
                           << "\t[adjustAMPDU]"
                           << "\t\t\tSTA #" << (*indexSTA)->GetStaid() 
@@ -2293,7 +2336,7 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
                 else if ((*indexSTA)->Gettypeofapplication () == 5)
                   std::cout << "\t Video download";
 
-                if ( newAmpduValue > oldAmpduValue )
+                if ( newAmpduValue > currentAmpduValue )
                   std::cout << "\t\tAMPDU of the STA increased to " << newAmpduValue;
                 else 
                   std::cout << "\t\tAMPDU of the STA reduced to " << newAmpduValue;
@@ -2302,10 +2345,10 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
               }
 
               // write the new AMPDU value to a file (it is written at the end of the file)
-              if ( mynameAMPDUFile != "" ) {
+              if ( myparam.mynameAMPDUFile != "" ) {
 
                 std::ofstream ofsAMPDU;
-                ofsAMPDU.open ( mynameAMPDUFile, std::ofstream::out | std::ofstream::app); // with "trunc" Any contents that existed in the file before it is open are discarded. with "app", all output operations happen at the end of the file, appending to its existing contents
+                ofsAMPDU.open ( myparam.mynameAMPDUFile, std::ofstream::out | std::ofstream::app); // with "trunc" Any contents that existed in the file before it is open are discarded. with "app", all output operations happen at the end of the file, appending to its existing contents
 
                 ofsAMPDU << Simulator::Now().GetSeconds() << "\t";    // timestamp
                 ofsAMPDU << (*indexSTA)->GetStaid() << "\t";          // ID of the AP
@@ -2321,14 +2364,10 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
   }
 
   // Reschedule the calculation
-  Simulator::Schedule(  Seconds(timeInterval),
+  Simulator::Schedule(  Seconds(myparam.timeInterval),
                         &adjustAMPDU,
                         myAllTheFlowStatistics,
-                        verboseLevel,
-                        timeInterval,
-                        latencyBudget,
-                        maxAmpduSize,
-                        mynameAMPDUFile);
+                        myparam);
 }
 
 
@@ -2629,6 +2668,8 @@ int main (int argc, char *argv[]) {
 
   uint32_t maxAmpduSize;     // taken from https://www.nsnam.org/doxygen/minstrel-ht-wifi-manager-example_8cc_source.html
 
+  uint16_t methodAdjustAmpdu = 0;  // method for adjusting the AMPDU size
+
   // Assign the selected value of the MAX AMPDU
   if ( (version80211 == 0) || (version80211 == 2) ) {
     maxAmpduSize = MAXSIZE80211n;
@@ -2684,6 +2725,7 @@ int main (int argc, char *argv[]) {
   // This algorithm dynamically adjusts AMPDU trying to keep VoIP latency below a threshold ('latencyBudget')
   cmd.AddValue ("aggregationDynamicAlgorithm", "Is the algorithm dynamically adapting AMPDU aggregation enabled?", aggregationDynamicAlgorithm);
   cmd.AddValue ("latencyBudget", "Maximum latency [s] tolerated by VoIP applications", latencyBudget);
+  cmd.AddValue ("methodAdjustAmpdu", "Method for adjusting AMPDU size: '0' (default), '1' ...", methodAdjustAmpdu);
 
   // TCP parameters
   cmd.AddValue ("TcpPayloadSize", "Payload size [bytes]", TcpPayloadSize);
@@ -2908,6 +2950,7 @@ int main (int argc, char *argv[]) {
     std::cout << "Maximum value of the AMPDU size when aggregation is limited: " << maxAmpduSizeWhenAggregationLimited << " bytes" << '\n';
     std::cout << "Is the algorithm dynamically adapting AMPDU aggregation enabled?" << aggregationDynamicAlgorithm << '\n';
     std::cout << "Maximum latency tolerated by VoIP applications" << latencyBudget << " s" << '\n';
+    std::cout << "Method for adjusting AMPDU size: '0' (default), '1' ..." << methodAdjustAmpdu << '\n';
     std::cout << '\n';
     // TCP parameters
     std::cout << "TCP Payload size: " << TcpPayloadSize << " bytes"  << '\n';
@@ -4963,15 +5006,20 @@ int main (int argc, char *argv[]) {
                 << "associated to AP\t"
                 << "AMPDU set to [bytes]" << "\n";
 
+      // prepare the parameters to call the function adjustAMPDU
+      adjustAmpduParameters myparam;
+      myparam.verboseLevel = verboseLevel;
+      myparam.timeInterval = timeMonitorKPIs;
+      myparam.latencyBudget = latencyBudget;
+      myparam.maxAmpduSize = maxAmpduSize;
+      myparam.mynameAMPDUFile = nameAMPDUFile.str();
+      myparam.methodAdjustAmpdu = methodAdjustAmpdu;
+
       // Modify the AMPDU of the APs where there are VoIP flows
       Simulator::Schedule(  Seconds(INITIALTIMEINTERVAL + timeMonitorKPIs + 0.0002),
                             &adjustAMPDU,
                             myAllTheFlowStatistics,
-                            verboseLevel,
-                            timeMonitorKPIs,
-                            latencyBudget,
-                            maxAmpduSize,
-                            nameAMPDUFile.str());
+                            myparam);
     }
   }
 
