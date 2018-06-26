@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v187
+ * v188
  * Developed and tested for ns-3.27, https://www.nsnam.org/ns-3-27/
  */
 
@@ -211,7 +211,7 @@ using namespace ns3;
 
 // Maximum AMPDU size of 802.11ac
 //https://groups.google.com/forum/#!topic/ns-3-users/T_21O5mGlgM
-//802.11ac allows the maximum A-MPDU length to range from 8 KB to 1 MB. http://chimera.labs.oreilly.com/books/1234000001739/ch03.html#section-mac-agg
+//802.11ac allows the maximum A-MPDU length to range from 8 KB to 1 MB.
 // The maximum transmission length is defined by time, and is a little less than 5.5 microseconds. At the highest data rates for 802.11ac, 
 //an aggregate frame can hold almost four and a half megabytes of data. Rather than represent such a large number of bytes in the PLCP header,
 //which is transmitted at the lowest possible data rate, 802.11ac shifts the length indication to the MPDU delimiters that are transmitted 
@@ -222,8 +222,7 @@ using namespace ns3;
 // - 2^13 - 1 = 8191 (8KB)
 // - 2^20 - 1 = 1,048,575 (about 1MB)
 #define MAXSIZE80211ac 65535  // FIXME. for 802.11ac max ampdu size should be 4692480
-                              // You can set it in src/wifi/regular-wifi-mac.cc
-                              // http://chimera.labs.oreilly.com/books/1234000001739/ch03.html
+                              // You can set it in src/wifi/model/regular-wifi-mac.cc
                               // https://www.nsnam.org/doxygen/classns3_1_1_sta_wifi_mac.html
 
 #define STEPADJUSTAMPDU 1000  // We will update AMPDU up and down using this step size
@@ -2563,6 +2562,9 @@ void saveKPIs ( std::string mynameKPIFile,
 }
 
 
+/*****************************/
+/************ main ***********/
+/*****************************/
 int main (int argc, char *argv[]) {
 
   //bool populatearpcache = false; // Provisional variable FIXME: It should not be necessary
@@ -2660,7 +2662,7 @@ int main (int argc, char *argv[]) {
   // https://www.nsnam.org/doxygen/wifi-spectrum-per-example_8cc_source.html
   uint32_t wifiModel = 0;
 
-  uint32_t version80211 = 0; // 0 means 802.11n; 1 means 802.11ac
+  uint32_t version80211 = 0; // 0 means 802.11n in 5GHz; 1 means 802.11ac; 2 means 802.11n in 2.4GHz 
 
   uint32_t propagationLossModel = 0; // 0: LogDistancePropagationLossModel (default); 1: FriisPropagationLossModel; 2: FriisSpectrumPropagationLossModel
 
@@ -2670,12 +2672,6 @@ int main (int argc, char *argv[]) {
 
   uint16_t methodAdjustAmpdu = 0;  // method for adjusting the AMPDU size
 
-  // Assign the selected value of the MAX AMPDU
-  if ( (version80211 == 0) || (version80211 == 2) ) {
-    maxAmpduSize = MAXSIZE80211n;
-  } else {
-    maxAmpduSize = MAXSIZE80211ac;
-  }
 
   // declaring the command line parser (input parameters)
   CommandLine cmd;
@@ -2758,6 +2754,15 @@ int main (int argc, char *argv[]) {
 
   cmd.Parse (argc, argv);
 
+  // Assign the selected value of the MAX AMPDU
+  if ( (version80211 == 0) || (version80211 == 2) ) {
+    // 802.11n
+    maxAmpduSize = MAXSIZE80211n;
+  } else {
+    // 802.11ac
+    maxAmpduSize = MAXSIZE80211ac;
+  }
+
   // If these parameters have not been set, set the default values
   if ( distance_between_STAs == 0.0 )
     distance_between_STAs = distance_between_APs;
@@ -2785,6 +2790,8 @@ int main (int argc, char *argv[]) {
 
   uint8_t availableChannels160MHz[2] = {50, 114};
 
+//FIXME: Pending to add 2.4GHz channels
+
   uint32_t j;  //FIXME: remove this variable and declare it when needed
 
 
@@ -2798,14 +2805,19 @@ int main (int argc, char *argv[]) {
   BooleanValue error = 0;
 
   // Test some conditions before starting
-  if (version80211 == 0) {
+  if (version80211 == 2) {
+    std::cout << "INPUT PARAMETER ERROR: 802.11n in 2.4GHz has not been totally implemented yet (no channels defined). Stopping the simulation." << '\n';
+    error = 1;
+  }
+
+  if ( (version80211 == 0) || (version80211 == 2) ) {
     if ( maxAmpduSize > MAXSIZE80211n ) {
-      std::cout << "INPUT PARAMETER ERROR: Too high AMPDU size. Limit: " << MAXSIZE80211n <<". Stopping the simulation." << '\n';
+      std::cout << "INPUT PARAMETER ERROR: Too high AMPDU size. Selected: " << maxAmpduSize << ". Limit: " << MAXSIZE80211n <<". Stopping the simulation." << '\n';
       error = 1;      
     }
-  } else {
+  } else { // version80211 == 1
     if ( maxAmpduSize > MAXSIZE80211ac ) {
-      std::cout << "INPUT PARAMETER ERROR: Too high AMPDU size. Limit: " << MAXSIZE80211ac <<". Stopping the simulation." << '\n';
+      std::cout << "INPUT PARAMETER ERROR: Too high AMPDU size. Selected: " << maxAmpduSize << ". Limit: " << MAXSIZE80211ac <<". Stopping the simulation." << '\n';
       error = 1;  
     }
   }
