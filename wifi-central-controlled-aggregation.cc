@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v188
+ * v189
  * Developed and tested for ns-3.27, https://www.nsnam.org/ns-3-27/
  */
 
@@ -2872,9 +2872,23 @@ int main (int argc, char *argv[]) {
     error = 1;
   }
 
-  if ((nodeMobility ==0) || (nodeMobility == 1)) {
+  if ((nodeMobility == 0) || (nodeMobility == 1)) {
     if (number_of_APs % number_of_APs_per_row != 0) {
-      std::cout << "INPUT PARAMETER ERROR: With static and linear mobility, the number of STAs MUST be a multiple of the number of STAs per row. Stopping the simulation." << '\n';
+      std::cout << "INPUT PARAMETER ERROR: With static and linear mobility, the number of APs MUST be a multiple of the number of APs per row. Stopping the simulation." << '\n';
+      error = 1;
+    }
+  }
+
+  if ((nodeMobility == 0) || (nodeMobility == 1)) {
+    if ( number_of_STAs_per_row == 0 ) {
+      std::cout << "INPUT PARAMETER ERROR: With static and linear mobility, the number of STAs per row MUST be defined. Stopping the simulation." << '\n';
+      error = 1;
+    }
+  }
+
+  if ((nodeMobility == 2) || (nodeMobility == 3)) {
+    if ( number_of_STAs_per_row != 0 ) {
+      std::cout << "INPUT PARAMETER ERROR: With random mobility, the number of STAs per row CANNOT be defined as a parameter. The initial positions are random. Stopping the simulation." << '\n';
       error = 1;
     }
   }
@@ -2910,6 +2924,7 @@ int main (int argc, char *argv[]) {
     std::cout << "INPUT PARAMETER ERROR: LogDistancePropagationLossModel does not work properly in 2.4 GHz. Stopping the simulation." << '\n';
     error = 1;      
   }
+
 
   if (error) return 0;
 
@@ -3208,6 +3223,7 @@ int main (int argc, char *argv[]) {
 
   // STAs do not move
   if (nodeMobility == 0) {
+
     mobility.SetPositionAllocator ( "ns3::GridPositionAllocator",
                                     "MinX", DoubleValue (x_position_first_STA),
                                     "MinY", DoubleValue (y_position_first_STA),
@@ -3217,6 +3233,7 @@ int main (int argc, char *argv[]) {
                                     "LayoutType", StringValue ("RowFirst"));
 
     mobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
+
     mobility.Install (staNodes);
 
   // STAs linear mobility: constant speed to the right
