@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v189
+ * v190
  * Developed and tested for ns-3.27, https://www.nsnam.org/ns-3-27/
  */
 
@@ -1981,13 +1981,17 @@ struct adjustAmpduParameters {
   double latencyBudget;
   uint32_t maxAmpduSize;
   std::string mynameAMPDUFile;
-  uint16_t methodAdjustAmpdu;
+  uint16_t methodAdjustAmpdu;  
 };
+
+
 
 // Dynamically adjust the size of the AMPDU
 void adjustAMPDU (//FlowStatistics* myFlowStatistics,
                   AllTheFlowStatistics myAllTheFlowStatistics,
-                  adjustAmpduParameters myparam)  
+                  adjustAmpduParameters myparam,
+                  uint32_t* belowLatencyAmpduValue,
+                  uint32_t* aboveLatencyAmpduValue)  
 {
   // For each AP, find the highest value of the delay of the associated STAs
   for (AP_recordVector::const_iterator indexAP = AP_vector.begin (); indexAP != AP_vector.end (); indexAP++) {
@@ -2001,7 +2005,7 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
                 << std::endl;
 
     // find the highest latency of all the VoIP STAs associated to that AP
-    double highestLatencyThisAP = 0.0;
+    double highestLatencyVoIPFlows = 0.0;
 
     for (STA_recordVector::const_iterator indexSTA = assoc_vector.begin (); indexSTA != assoc_vector.end (); indexSTA++) {
 
@@ -2041,10 +2045,10 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
                           ;
 
               // if the latency of this STA is the highest one so far, update the value of the highest latency
-              if (  myAllTheFlowStatistics.FlowStatisticsVoIPUpload[ indexForVector ].lastIntervalDelay > highestLatencyThisAP && 
+              if (  myAllTheFlowStatistics.FlowStatisticsVoIPUpload[ indexForVector ].lastIntervalDelay > highestLatencyVoIPFlows && 
                     !isnan(myAllTheFlowStatistics.FlowStatisticsVoIPUpload[ indexForVector].lastIntervalDelay))
 
-                highestLatencyThisAP = myAllTheFlowStatistics.FlowStatisticsVoIPUpload[ indexForVector].lastIntervalDelay;
+                highestLatencyVoIPFlows = myAllTheFlowStatistics.FlowStatisticsVoIPUpload[ indexForVector].lastIntervalDelay;
 
             } else {
               if (myparam.verboseLevel > 0) 
@@ -2073,10 +2077,10 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
                           ;
 
               // if the latency of this STA is the highest one so far, update the value of the highest latency
-              if (  myAllTheFlowStatistics.FlowStatisticsVoIPDownload[ indexForVector ].lastIntervalDelay > highestLatencyThisAP && 
+              if (  myAllTheFlowStatistics.FlowStatisticsVoIPDownload[ indexForVector ].lastIntervalDelay > highestLatencyVoIPFlows && 
                     !isnan(myAllTheFlowStatistics.FlowStatisticsVoIPDownload[ indexForVector ].lastIntervalDelay))
 
-                highestLatencyThisAP = myAllTheFlowStatistics.FlowStatisticsVoIPDownload[ indexForVector ].lastIntervalDelay;
+                highestLatencyVoIPFlows = myAllTheFlowStatistics.FlowStatisticsVoIPDownload[ indexForVector ].lastIntervalDelay;
 
             } else {
               if (myparam.verboseLevel > 0) 
@@ -2186,18 +2190,19 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
     // Adjust the value of the AMPDU
 
     // Variable to store the new value of the max AMPDU
-    uint32_t newAmpduValue, currentAmpduValue;
+    uint32_t newAmpduValue;
+    
+    // Variable to store the current value of the max AMPDU
+    uint32_t currentAmpduValue = (*indexAP)->GetMaxSizeAmpdu();
 
     // Variable to store the minimum AMPDU value
     uint32_t minimumAmpduValue = MTU + 100;
-
-    currentAmpduValue = (*indexAP)->GetMaxSizeAmpdu();
 
     // First method to adjust AMPDU: linear increase and linear decrease
     if ( myparam.methodAdjustAmpdu == 0 ) {
 
       // if the latency is above the latency budget, we decrease the AMPDU value
-      if ( highestLatencyThisAP > myparam.latencyBudget ) {
+      if ( highestLatencyVoIPFlows > myparam.latencyBudget ) {
 
         // decrease the AMPDU value
         if (currentAmpduValue < ( AGGRESSIVENESS * STEPADJUSTAMPDU ) ) {
@@ -2222,7 +2227,7 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
     } else if ( myparam.methodAdjustAmpdu == 1 ) {
 
       //  if the latency is above the latency budget
-      if ( highestLatencyThisAP > myparam.latencyBudget ) {
+      if ( highestLatencyVoIPFlows > myparam.latencyBudget ) {
         // decrease the AMPDU value
         newAmpduValue = minimumAmpduValue;
 
@@ -2232,11 +2237,11 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
         newAmpduValue = std::min(( currentAmpduValue + (2*STEPADJUSTAMPDU) ), myparam.maxAmpduSize); // avoid values above the maximum
       }
 
-    // Third method to adjust AMPDU: division 
+    // Third method to adjust AMPDU: half of what is left 
     } else if ( myparam.methodAdjustAmpdu == 2 ) {
 
       //  if the latency is above the latency budget
-      if ( highestLatencyThisAP > myparam.latencyBudget ) {
+      if ( highestLatencyVoIPFlows > myparam.latencyBudget ) {
         // decrease the AMPDU value
         newAmpduValue = std::floor((currentAmpduValue - minimumAmpduValue) / 2);
 
@@ -2245,8 +2250,42 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
         // increase the AMPDU value
         newAmpduValue = currentAmpduValue + std::ceil(( myparam.maxAmpduSize + 1 - currentAmpduValue ) / 2);
       }
-    }
 
+    // Fourth method to adjust AMPDU
+    } else if ( myparam.methodAdjustAmpdu == 3 ) {
+
+      // Obtain the value of "temp" AMPDU value
+      uint32_t temp = *belowLatencyAmpduValue + 1 + (0.5 * ( *aboveLatencyAmpduValue - *belowLatencyAmpduValue));
+      // make sure the AMPDU is not above the maximum
+      if (temp > myparam.maxAmpduSize) temp = myparam.maxAmpduSize;
+
+      //  if the latency is below the latency budget
+      if ( highestLatencyVoIPFlows < myparam.latencyBudget ) {
+        *belowLatencyAmpduValue = temp;
+
+        // if the latency is very close to the latency budget (epsilon = 0.001 s)
+        if (std::abs( myparam.latencyBudget - highestLatencyVoIPFlows ) < 0.001 ) {
+          // do nothing
+        } else {
+          // increase the AMPDU value
+          newAmpduValue = temp;
+        }
+
+      // if the latency is above the latency budget
+      } else {
+        // decrease the AMPDU value
+        newAmpduValue = temp;
+        *aboveLatencyAmpduValue = temp;
+      }
+
+std::cout << Simulator::Now ().GetSeconds()  << '\t';
+std::cout << "latencyBudget: " << myparam.latencyBudget << '\t';
+std::cout << "highest latency: " << highestLatencyVoIPFlows << '\t';
+std::cout << "temp: " << temp << '\t';
+std::cout << "currentAmpduValue: " << currentAmpduValue << '\t';
+std::cout << "belowLatencyAmpduValue: " << *belowLatencyAmpduValue << '\t';
+std::cout << "aboveLatencyAmpduValue: " << *aboveLatencyAmpduValue << '\n';
+    }
 
     // write the AMPDU value to a file (it is written at the end of the file)
     if ( myparam.mynameAMPDUFile != "" ) {
@@ -2269,7 +2308,7 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
         std::cout << Simulator::Now ().GetSeconds()
                   << "\t[adjustAMPDU]"
                   //<< "\tAP #" << GetAnAP_Id((*indexAP)->GetMac())
-                  << "\t\tHighest Latency of VoIP flows: " << highestLatencyThisAP << "s (limit " << myparam.latencyBudget << " s)"
+                  << "\t\tHighest Latency of VoIP flows: " << highestLatencyVoIPFlows << "s (limit " << myparam.latencyBudget << " s)"
                   //<< "\twith MAC: " << (*indexAP)->GetMac() 
                   << "\tAMPDU of the AP not changed (" << (*indexAP)->GetMaxSizeAmpdu() << ")"
                   << std::endl;
@@ -2286,7 +2325,7 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
         std::cout << Simulator::Now ().GetSeconds()
                   << "\t[adjustAMPDU]"
                   //<< "\tAP #" << GetAnAP_Id((*indexAP)->GetMac())
-                  << "\t\tHighest Latency of VoIP flows: " << highestLatencyThisAP;
+                  << "\t\tHighest Latency of VoIP flows: " << highestLatencyVoIPFlows;
                   //<< "\twith MAC: " << (*indexAP)->GetMac();
 
         if ( newAmpduValue > currentAmpduValue )
@@ -2366,7 +2405,9 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
   Simulator::Schedule(  Seconds(myparam.timeInterval),
                         &adjustAMPDU,
                         myAllTheFlowStatistics,
-                        myparam);
+                        myparam,
+                        belowLatencyAmpduValue,
+                        aboveLatencyAmpduValue);
 }
 
 
@@ -2762,6 +2803,19 @@ int main (int argc, char *argv[]) {
     // 802.11ac
     maxAmpduSize = MAXSIZE80211ac;
   }
+
+  // Variable to store the last AMPDU value for which latency was below the limit
+  // I use a pointer because it has to be modified by a function
+  uint32_t *belowLatencyAmpduValue;
+  belowLatencyAmpduValue = (uint32_t *) malloc (1);
+  *belowLatencyAmpduValue = MTU + 100;
+
+  // Variable to store the last AMPDU value for which latency was above the limit
+  // I use a pointer because it has to be modified by a function
+  uint32_t *aboveLatencyAmpduValue;
+  aboveLatencyAmpduValue = (uint32_t *) malloc (1);
+  *aboveLatencyAmpduValue = maxAmpduSize;
+
 
   // If these parameters have not been set, set the default values
   if ( distance_between_STAs == 0.0 )
@@ -5048,7 +5102,9 @@ int main (int argc, char *argv[]) {
       Simulator::Schedule(  Seconds(INITIALTIMEINTERVAL + timeMonitorKPIs + 0.0002),
                             &adjustAMPDU,
                             myAllTheFlowStatistics,
-                            myparam);
+                            myparam,
+                            belowLatencyAmpduValue,
+                            aboveLatencyAmpduValue);
     }
   }
 
