@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v190
+ * v191
  * Developed and tested for ns-3.27, https://www.nsnam.org/ns-3-27/
  */
 
@@ -2234,7 +2234,7 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
       // if the latency is below the latency budget  
       } else {
         // increase the AMPDU value
-        newAmpduValue = std::min(( currentAmpduValue + (2*STEPADJUSTAMPDU) ), myparam.maxAmpduSize); // avoid values above the maximum
+        newAmpduValue = std::min(( currentAmpduValue + ( 2 * STEPADJUSTAMPDU) ), myparam.maxAmpduSize); // avoid values above the maximum
       }
 
     // Third method to adjust AMPDU: half of what is left 
@@ -2248,43 +2248,77 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
       // if the latency is below the latency budget  
       } else {
         // increase the AMPDU value
-        newAmpduValue = currentAmpduValue + std::ceil(( myparam.maxAmpduSize + 1 - currentAmpduValue ) / 2);
+        newAmpduValue = currentAmpduValue + std::ceil(( myparam.maxAmpduSize - currentAmpduValue + 1 ) / 2);
       }
 
     // Fourth method to adjust AMPDU
     } else if ( myparam.methodAdjustAmpdu == 3 ) {
 
-      // Obtain the value of "temp" AMPDU value
-      uint32_t temp = *belowLatencyAmpduValue + 1 + (0.5 * ( *aboveLatencyAmpduValue - *belowLatencyAmpduValue));
-      // make sure the AMPDU is not above the maximum
-      if (temp > myparam.maxAmpduSize) temp = myparam.maxAmpduSize;
-
       //  if the latency is below the latency budget
       if ( highestLatencyVoIPFlows < myparam.latencyBudget ) {
-        *belowLatencyAmpduValue = temp;
+        // increase the AMPDU value
+        newAmpduValue = std::min(uint32_t( currentAmpduValue * 2), myparam.maxAmpduSize);
 
-        // if the latency is very close to the latency budget (epsilon = 0.001 s)
-        if (std::abs( myparam.latencyBudget - highestLatencyVoIPFlows ) < 0.001 ) {
-          // do nothing
-        } else {
-          // increase the AMPDU value
-          newAmpduValue = temp;
-        }
-
-      // if the latency is above the latency budget
+      // if the latency is above the latency budget  
       } else {
         // decrease the AMPDU value
-        newAmpduValue = temp;
-        *aboveLatencyAmpduValue = temp;
+        newAmpduValue = std::max(uint32_t( currentAmpduValue * 0.618 ), minimumAmpduValue); // avoid values above the maximum
       }
 
-std::cout << Simulator::Now ().GetSeconds()  << '\t';
-std::cout << "latencyBudget: " << myparam.latencyBudget << '\t';
-std::cout << "highest latency: " << highestLatencyVoIPFlows << '\t';
-std::cout << "temp: " << temp << '\t';
-std::cout << "currentAmpduValue: " << currentAmpduValue << '\t';
-std::cout << "belowLatencyAmpduValue: " << *belowLatencyAmpduValue << '\t';
-std::cout << "aboveLatencyAmpduValue: " << *aboveLatencyAmpduValue << '\n';
+
+    // Fifth method for adjusting the AMPDU
+    } else if ( myparam.methodAdjustAmpdu == 4 ) {
+
+      //  if the latency is above the latency budget
+      if ( highestLatencyVoIPFlows > myparam.latencyBudget ) {
+        if (myparam.verboseLevel > 2)
+          std::cout << "[adjustAMPDU] above latency\n";
+
+        *aboveLatencyAmpduValue = std::max( currentAmpduValue - STEPADJUSTAMPDU, minimumAmpduValue);
+        *belowLatencyAmpduValue = std::max( *belowLatencyAmpduValue - STEPADJUSTAMPDU, minimumAmpduValue);
+        newAmpduValue = std::ceil((*aboveLatencyAmpduValue + *belowLatencyAmpduValue + 1 ) / 2);
+        if ( newAmpduValue > myparam.maxAmpduSize ) 
+          newAmpduValue = myparam.maxAmpduSize;
+        if ( newAmpduValue < minimumAmpduValue ) 
+          newAmpduValue = minimumAmpduValue;
+
+      } else if (std::abs( myparam.latencyBudget - highestLatencyVoIPFlows ) > 0.001 ) {      
+        // if the latency is not very close to the latency budget (epsilon = 0.001 s)
+        if (myparam.verboseLevel > 2)
+          std::cout << "[adjustAMPDU] not very close to the limit\n";
+
+        *belowLatencyAmpduValue = std::min( currentAmpduValue + STEPADJUSTAMPDU, myparam.maxAmpduSize); // avoid values above the maximum
+        *aboveLatencyAmpduValue = std::min( *aboveLatencyAmpduValue + STEPADJUSTAMPDU, myparam.maxAmpduSize); // avoid values above the maximum
+
+        newAmpduValue = std::ceil((*aboveLatencyAmpduValue + *belowLatencyAmpduValue + 1 ) / 2);
+        if ( newAmpduValue > myparam.maxAmpduSize ) 
+          newAmpduValue = myparam.maxAmpduSize;
+        if ( newAmpduValue < minimumAmpduValue ) 
+          newAmpduValue = minimumAmpduValue;
+
+      } else {
+        // do nothing
+        if (myparam.verboseLevel > 2)
+          std::cout << "[adjustAMPDU] very close to the limit\n";
+        newAmpduValue = currentAmpduValue;
+      }
+
+      if (myparam.verboseLevel > 2) {
+        std::cout << Simulator::Now ().GetSeconds()  << '\t';
+        std::cout << "[adjustAMPDU] latencyBudget: " << myparam.latencyBudget << '\t';
+        std::cout << "highest latency: " << highestLatencyVoIPFlows << '\t';
+        std::cout << "currentAmpduValue: " << currentAmpduValue << '\t';
+        std::cout << "belowLatencyAmpduValue: " << *belowLatencyAmpduValue << '\t';
+        std::cout << "aboveLatencyAmpduValue: " << *aboveLatencyAmpduValue << '\t';
+        std::cout << "newAmpduValue: " << newAmpduValue << '\n';
+      }
+
+
+
+    // If the selected method does not exist, exit
+    } else {
+      std::cout << "AMPDU adjust method unknown\n";
+      exit (1);
     }
 
     // write the AMPDU value to a file (it is written at the end of the file)
