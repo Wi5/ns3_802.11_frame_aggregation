@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v191
+ * v192
  * Developed and tested for ns-3.27, https://www.nsnam.org/ns-3-27/
  */
 
@@ -225,7 +225,7 @@ using namespace ns3;
                               // You can set it in src/wifi/model/regular-wifi-mac.cc
                               // https://www.nsnam.org/doxygen/classns3_1_1_sta_wifi_mac.html
 
-#define STEPADJUSTAMPDU 1000  // We will update AMPDU up and down using this step size
+#define STEPADJUSTAMPDUDEFAULT 1000  // Default value. We will update AMPDU up and down using this step size
 
 #define AGGRESSIVENESS 10     // Factor to decrease AMPDU down
 
@@ -1981,7 +1981,8 @@ struct adjustAmpduParameters {
   double latencyBudget;
   uint32_t maxAmpduSize;
   std::string mynameAMPDUFile;
-  uint16_t methodAdjustAmpdu;  
+  uint16_t methodAdjustAmpdu;
+  uint32_t stepAdjustAmpdu; 
 };
 
 
@@ -2205,12 +2206,12 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
       if ( highestLatencyVoIPFlows > myparam.latencyBudget ) {
 
         // decrease the AMPDU value
-        if (currentAmpduValue < ( AGGRESSIVENESS * STEPADJUSTAMPDU ) ) {
+        if (currentAmpduValue < ( AGGRESSIVENESS * myparam.stepAdjustAmpdu ) ) {
           // I can only decrease to the minimum
           newAmpduValue = minimumAmpduValue;
 
         } else {
-          newAmpduValue = currentAmpduValue - ( AGGRESSIVENESS * STEPADJUSTAMPDU );
+          newAmpduValue = currentAmpduValue - ( AGGRESSIVENESS * myparam.stepAdjustAmpdu );
 
           // make sure that the value is at least the minimum
           if ( newAmpduValue < minimumAmpduValue )
@@ -2220,7 +2221,7 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
       // if the latency is below the latency budget, we increase the AMPDU value
       } else {
         // increase the AMPDU value
-        newAmpduValue = std::min(( currentAmpduValue + STEPADJUSTAMPDU ), myparam.maxAmpduSize); // avoid values above the maximum
+        newAmpduValue = std::min(( currentAmpduValue + myparam.stepAdjustAmpdu ), myparam.maxAmpduSize); // avoid values above the maximum
       }
 
     // Second method to adjust AMPDU: instantaneous reduction to the minimum, double aggressiveness for increase 
@@ -2234,7 +2235,7 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
       // if the latency is below the latency budget  
       } else {
         // increase the AMPDU value
-        newAmpduValue = std::min(( currentAmpduValue + ( 2 * STEPADJUSTAMPDU) ), myparam.maxAmpduSize); // avoid values above the maximum
+        newAmpduValue = std::min(( currentAmpduValue + ( 2 * myparam.stepAdjustAmpdu) ), myparam.maxAmpduSize); // avoid values above the maximum
       }
 
     // Third method to adjust AMPDU: half of what is left 
@@ -2274,8 +2275,8 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
         if (myparam.verboseLevel > 2)
           std::cout << "[adjustAMPDU] above latency\n";
 
-        *aboveLatencyAmpduValue = std::max( currentAmpduValue - STEPADJUSTAMPDU, minimumAmpduValue);
-        *belowLatencyAmpduValue = std::max( *belowLatencyAmpduValue - STEPADJUSTAMPDU, minimumAmpduValue);
+        *aboveLatencyAmpduValue = std::max( currentAmpduValue - myparam.stepAdjustAmpdu, minimumAmpduValue);
+        *belowLatencyAmpduValue = std::max( *belowLatencyAmpduValue - myparam.stepAdjustAmpdu, minimumAmpduValue);
         newAmpduValue = std::ceil((*aboveLatencyAmpduValue + *belowLatencyAmpduValue + 1 ) / 2);
         if ( newAmpduValue > myparam.maxAmpduSize ) 
           newAmpduValue = myparam.maxAmpduSize;
@@ -2287,8 +2288,8 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
         if (myparam.verboseLevel > 2)
           std::cout << "[adjustAMPDU] not very close to the limit\n";
 
-        *belowLatencyAmpduValue = std::min( currentAmpduValue + STEPADJUSTAMPDU, myparam.maxAmpduSize); // avoid values above the maximum
-        *aboveLatencyAmpduValue = std::min( *aboveLatencyAmpduValue + STEPADJUSTAMPDU, myparam.maxAmpduSize); // avoid values above the maximum
+        *belowLatencyAmpduValue = std::min( currentAmpduValue + myparam.stepAdjustAmpdu, myparam.maxAmpduSize); // avoid values above the maximum
+        *aboveLatencyAmpduValue = std::min( *aboveLatencyAmpduValue + myparam.stepAdjustAmpdu, myparam.maxAmpduSize); // avoid values above the maximum
 
         newAmpduValue = std::ceil((*aboveLatencyAmpduValue + *belowLatencyAmpduValue + 1 ) / 2);
         if ( newAmpduValue > myparam.maxAmpduSize ) 
@@ -2747,6 +2748,8 @@ int main (int argc, char *argv[]) {
 
   uint16_t methodAdjustAmpdu = 0;  // method for adjusting the AMPDU size
 
+  uint32_t stepAdjustAmpdu = STEPADJUSTAMPDUDEFAULT; // step for adjusting the AMPDU size. Assign the default value
+
 
   // declaring the command line parser (input parameters)
   CommandLine cmd;
@@ -2797,6 +2800,7 @@ int main (int argc, char *argv[]) {
   cmd.AddValue ("aggregationDynamicAlgorithm", "Is the algorithm dynamically adapting AMPDU aggregation enabled?", aggregationDynamicAlgorithm);
   cmd.AddValue ("latencyBudget", "Maximum latency [s] tolerated by VoIP applications", latencyBudget);
   cmd.AddValue ("methodAdjustAmpdu", "Method for adjusting AMPDU size: '0' (default), '1' ...", methodAdjustAmpdu);
+  cmd.AddValue ("stepAdjustAmpdu", "Step for adjusting AMPDU size [bytes]", stepAdjustAmpdu);
 
   // TCP parameters
   cmd.AddValue ("TcpPayloadSize", "Payload size [bytes]", TcpPayloadSize);
@@ -3066,6 +3070,8 @@ int main (int argc, char *argv[]) {
     std::cout << "Is the algorithm dynamically adapting AMPDU aggregation enabled?" << aggregationDynamicAlgorithm << '\n';
     std::cout << "Maximum latency tolerated by VoIP applications" << latencyBudget << " s" << '\n';
     std::cout << "Method for adjusting AMPDU size: '0' (default), '1' ..." << methodAdjustAmpdu << '\n';
+    std::cout << "Step for adjusting AMPDU size [bytes]" << stepAdjustAmpdu << '\n';
+
     std::cout << '\n';
     // TCP parameters
     std::cout << "TCP Payload size: " << TcpPayloadSize << " bytes"  << '\n';
@@ -5131,6 +5137,7 @@ int main (int argc, char *argv[]) {
       myparam.maxAmpduSize = maxAmpduSize;
       myparam.mynameAMPDUFile = nameAMPDUFile.str();
       myparam.methodAdjustAmpdu = methodAdjustAmpdu;
+      myparam.stepAdjustAmpdu = stepAdjustAmpdu;
 
       // Modify the AMPDU of the APs where there are VoIP flows
       Simulator::Schedule(  Seconds(INITIALTIMEINTERVAL + timeMonitorKPIs + 0.0002),
