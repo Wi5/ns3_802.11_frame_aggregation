@@ -33,7 +33,7 @@
  * The association record is inspired on https://github.com/MOSAIC-UA/802.11ah-ns3/blob/master/ns-3/scratch/s1g-mac-test.cc
  * The hub is inspired on https://www.nsnam.org/doxygen/csma-bridge_8cc_source.html
  *
- * v192
+ * v194
  * Developed and tested for ns-3.27, https://www.nsnam.org/ns-3-27/
  */
 
@@ -1986,7 +1986,6 @@ struct adjustAmpduParameters {
 };
 
 
-
 // Dynamically adjust the size of the AMPDU
 void adjustAMPDU (//FlowStatistics* myFlowStatistics,
                   AllTheFlowStatistics myAllTheFlowStatistics,
@@ -2148,8 +2147,8 @@ void adjustAMPDU (//FlowStatistics* myFlowStatistics,
 
           // Video download
           } else if ((*indexSTA)->Gettypeofapplication () == 5) {
-              if (myparam.verboseLevel > 0)
-                std::cout << "\tVideo download";
+            if (myparam.verboseLevel > 0)
+              std::cout << "\tVideo download";
 
             // index for the vector of statistics of VideoDownload flows
             uint16_t indexForVector = (*indexSTA)->GetStaid()
@@ -2684,8 +2683,8 @@ int main (int argc, char *argv[]) {
                             // 2: each server application is in a node behind the router, connected to it with a P2P connection
 
   double arpAliveTimeout = 5.0;       // seconds by default
-  double arpDeadTimeout = 0.01;     // seconds by default
-  uint16_t arpMaxRetries = 100;       // maximum retries or ARPs
+  double arpDeadTimeout = 0.1;       // seconds by default
+  uint16_t arpMaxRetries = 30;       // maximum retries or ARPs
 
   uint32_t TcpPayloadSize = MTU - 52; // 1448 bytes. Prevent fragmentation. Taken from https://www.nsnam.org/doxygen/codel-vs-pfifo-asymmetric_8cc_source.html
   uint32_t VideoMaxPacketSize = MTU - 20 - 8;  //1472 bytes. Remove 20 (IP) + 8 (UDP) bytes from MTU (1500)
@@ -2779,7 +2778,9 @@ int main (int argc, char *argv[]) {
   cmd.AddValue ("topology", "Topology: '0' all server applications in a server; '1' all the servers connected to the hub (default); '2' all the servers behind a router", topology);
 
   // ARP parameters, see https://www.nsnam.org/doxygen/classns3_1_1_arp_cache.html
-  cmd.AddValue ("ARPAliveTimeout", "ARP Alive Timeout [s]: Time an ARP entry will be in ALIVE state (unless refreshed)", arpAliveTimeout);
+  cmd.AddValue ("arpAliveTimeout", "ARP Alive Timeout [s]: Time an ARP entry will be in ALIVE state (unless refreshed)", arpAliveTimeout);
+  cmd.AddValue ("arpDeadTimeout", "ARP Dead Timeout [s]: Time an ARP entry will be in DEAD state before being removed", arpDeadTimeout);
+  cmd.AddValue ("arpMaxRetries", "ARP max retries for a resolution", arpMaxRetries);
 
   // Aggregation parameters
   // The central controller runs an algorithm that dynamically
@@ -3061,6 +3062,8 @@ int main (int argc, char *argv[]) {
     std::cout << "Speed of the nodes (in linear and random mobility): " << constantSpeed << " m/s"<< '\n';
     std::cout << "Topology: '0' all server applications in a server; '1' all the servers connected to the hub; '2' all the servers behind a router: " << topology << '\n';
     std::cout << "ARP Alive Timeout [s]: Time an ARP entry will be in ALIVE state (unless refreshed): " << arpAliveTimeout << " s\n";
+    std::cout << "ARP Dead Timeout [s]: Time an ARP entry will be in DEAD state before being removed: " << arpDeadTimeout << " s\n";
+    std::cout << "ARP max retries for a resolution: " << arpMaxRetries << " s\n";
     std::cout << '\n';
     // Aggregation parameters    
     std::cout << "Initial rate of APs with AMPDU aggregation enabled: " << rateAPsWithAMPDUenabled << '\n';
@@ -4509,11 +4512,13 @@ int main (int argc, char *argv[]) {
   /************* Setting applications ***********/
 
   // Variable for setting the port of each communication
-  uint16_t port = INITIALPORT_VOIP_UPLOAD;
+  uint16_t port;
 
-  // VoIP upload
+  // VoIP upload applications
+
   // UDPClient runs in the STA and UDPServer runs in the server(s)
   // traffic goes STA -> server
+  port = INITIALPORT_VOIP_UPLOAD;
   UdpServerHelper myVoipUpServer;
   ApplicationContainer VoipUpServer;
 
@@ -4585,8 +4590,8 @@ int main (int argc, char *argv[]) {
   }
 
 
+  // VoIP download applications
 
-  // VoIP download
   // UDPClient in the server(s) and UDPServer in the STA
   // traffic goes Server -> STA
   // I have taken this as an example: https://groups.google.com/forum/#!topic/ns-3-users/ej8LaxQO1Gc
@@ -4659,7 +4664,7 @@ int main (int argc, char *argv[]) {
   }
 
 
-  // Configurations for TCP
+  // Configurations for TCP applications
 
   // This is necessary, or the packets will not be of this size
   // Taken from https://www.nsnam.org/doxygen/codel-vs-pfifo-asymmetric_8cc_source.html
@@ -4701,7 +4706,7 @@ int main (int argc, char *argv[]) {
   }
 
 
-  //TCP upload
+  // TCP upload applications
   port = INITIALPORT_TCP_UPLOAD;
 
   // Create a PacketSinkApplication and install it on the remote nodes
@@ -4773,7 +4778,7 @@ int main (int argc, char *argv[]) {
   BulkSendTcpUp.Stop (Seconds (simulationTime + INITIALTIMEINTERVAL));
 
 
-  // TCP download
+  // TCP download applications
   port = INITIALPORT_TCP_DOWNLOAD;
 
   // Create a PacketSink Application and install it on the wifi STAs
@@ -4842,8 +4847,7 @@ int main (int argc, char *argv[]) {
   BulkSendTcpDown.Stop (Seconds (simulationTime + INITIALTIMEINTERVAL));
 
 
-
-  // Video download Application
+  // Video download applications
   port = INITIALPORT_VIDEO_DOWNLOAD;
   // Using UdpTraceClient, see  https://www.nsnam.org/doxygen/udp-trace-client_8cc_source.html
   //                            https://www.nsnam.org/doxygen/structns3_1_1_udp_trace_client.html
@@ -4938,10 +4942,9 @@ int main (int argc, char *argv[]) {
     port ++;
   }
 
-  // print a blank line after printing the info about the applications
+  // print a blank line after the info about the applications
   if (verboseLevel > 0)
     std::cout << "\n";
-
 
 
   // Enable the creation of pcap files
@@ -5155,7 +5158,6 @@ int main (int argc, char *argv[]) {
     AsciiTraceHelper ascii;
     MobilityHelper::EnableAsciiAll (ascii.CreateFileStream (outputFileName + "_" + outputFileSurname + "-mobility.txt"));
   }
- 
 
 
 // FIXME ***************Trial: Change the parameters of the AP (disable A-MPDU) during the simulation
